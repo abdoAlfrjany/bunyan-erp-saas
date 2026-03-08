@@ -1,0 +1,98 @@
+/* globals.css */
+/* الوظيفة: الأنماط الأساسية العامة لمنظومة Bunyan — RTL + ألوان بنفسجية + خط Cairo */
+/* اللون الرئيسي: #4a2570 — Bunyan Purple */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══ Google Fonts — Cairo فقط ═══ */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ═══ متغيرات CSS ═══ */
+:root {
+  --sidebar-width: 260px;
+  --page-bg: #f5f3f8;
+  --card-bg: #ffffff;
+  --card-border: #e8e0f0;
+  --text-primary: #1a0830;
+  --text-secondary: #2a1045;
+  --text-body: #3a1a5a;
+  --text-muted: #6b4090;
+  
+  --color-bunyan-50: 232 224 240;
+  --color-bunyan-100: 201 184 217;
+  --color-bunyan-200: 169 143 192;
+  --color-bunyan-300: 138 103 168;
+  --color-bunyan-400: 107 64 144;
+  --color-bunyan-500: 74 37 112; 
+  --color-bunyan-600: 58 26 90;
+  --color-bunyan-700: 42 16 69;
+  --color-bunyan-800: 26 8 48;
+  --color-bunyan-900: 13 4 24;
+}
+
+/* ═══ RTL Base ═══ */
+html {
+  direction: rtl;
+}
+
+body {
+  color: var(--text-body);
+  background: var(--page-bg);
+  font-family: 'Cairo', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ═══ Scrollbar ═══ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9b8d9;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a98fc0;
+}
+
+/* ═══ Utilities ═══ */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .font-currency {
+    font-family: 'Cairo', sans-serif;
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    unicode-bidi: embed;
+  }
+}
+
+/* ═══ Responsive — Mobile ═══ */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 0px;
+  }
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  button {
+    min-height: 36px;
+  }
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* ═══ Print ═══ */
+@media print {
+  nav, aside, .no-print { display: none !important; }
+  body { background: white; }
+}

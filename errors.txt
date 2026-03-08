@@ -1,0 +1,61 @@
+src/app/(tenant)/dashboard/page.tsx(115,19): error TS2322: Type '(value: number) => [string, string]' is not assignable to type 'Formatter<ValueType, NameType> & ((value: ValueType, name: NameType, item: Payload<ValueType, NameType>, index: number, payload: Payload<...>[]) => ReactNode | [...])'.
+  Type '(value: number) => [string, string]' is not assignable to type 'Formatter<ValueType, NameType>'.
+    Types of parameters 'value' and 'value' are incompatible.
+      Type 'ValueType | undefined' is not assignable to type 'number'.
+        Type 'undefined' is not assignable to type 'number'.
+src/app/(tenant)/dashboard/page.tsx(138,21): error TS2322: Type '(value: number) => [string, string]' is not assignable to type 'Formatter<ValueType, NameType> & ((value: ValueType, name: NameType, item: Payload<ValueType, NameType>, index: number, payload: Payload<...>[]) => ReactNode | [...])'.
+  Type '(value: number) => [string, string]' is not assignable to type 'Formatter<ValueType, NameType>'.
+    Types of parameters 'value' and 'value' are incompatible.
+      Type 'ValueType | undefined' is not assignable to type 'number'.
+        Type 'undefined' is not assignable to type 'number'.
+src/app/(tenant)/dashboard/page.tsx(208,16): error TS2304: Cannot find name 'ShoppingCart'.
+src/app/(tenant)/debts/page.tsx(24,50): error TS2339: Property 'getStore' does not exist on type 'DataState'.
+src/app/(tenant)/debts/page.tsx(73,39): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/app/(tenant)/delivery/companies/page.tsx(53,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/delivery/companies/page.tsx(59,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/delivery/companies/page.tsx(67,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/delivery/companies/page.tsx(289,156): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/delivery/settlements/page.tsx(44,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/delivery/settlements/page.tsx(63,5): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/hr/page.tsx(42,43): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/hr/page.tsx(45,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/hr/page.tsx(48,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/hr/page.tsx(225,157): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(135,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(141,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(152,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(196,5): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(207,5): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/orders/page.tsx(213,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/partners/page.tsx(43,23): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/partners/page.tsx(46,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/partners/page.tsx(52,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/partners/page.tsx(237,156): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/settings/page.tsx(17,35): error TS2339: Property 'getStore' does not exist on type 'DataState'.
+src/app/(tenant)/settings/page.tsx(159,84): error TS2339: Property 'planFee' does not exist on type 'Subscription'.
+src/app/(tenant)/treasury/page.tsx(49,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/treasury/page.tsx(53,7): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
+src/app/(tenant)/treasury/page.tsx(68,5): error TS2349: This expression is not callable.
+  Type 'ToastContextType' has no call signatures.
