@@ -167,6 +167,7 @@ export interface TreasuryTransaction {
 
 export interface Subscription {
   id: string; tenantId: string; plan: string; amount: number;
+  planFee?: number; // Added as per request
   periodFrom: string; periodTo: string; status: 'pending' | 'paid' | 'overdue' | 'cancelled'; paidAt?: string;
 }
 

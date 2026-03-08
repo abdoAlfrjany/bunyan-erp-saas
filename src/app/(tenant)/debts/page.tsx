@@ -59,7 +59,7 @@ export default function DebtsPage() {
   const totalInternal = myDebts.filter((d) => d.debtType === 'internal' && d.status !== 'paid').reduce((s, d) => s + (d.amount - d.paidAmount), 0);
   const totalExternal = myDebts.filter((d) => d.debtType === 'external' && d.status !== 'paid').reduce((s, d) => s + (d.amount - d.paidAmount), 0);
 
-  const supplierNames = Array.from(new Set(myDebts.filter(d => d.debtCategory === 'supplier').map(d => d.linkedEntityName)));
+  const supplierNames = Array.from(new Set(myDebts.filter(d => d.debtCategory === 'supplier').map((d: Debt) => d.linkedEntityName)));
 
   const resetForm = () => {
     setForm({ debtType: 'external', debtCategory: 'supplier', linkedEntityId: '', linkedEntityName: '', linkedEntityType: 'supplier', amount: '', dueDate: '', description: '', sourceReference: '' });

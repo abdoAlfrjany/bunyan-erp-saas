@@ -6,6 +6,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { ValueType } from "recharts/types/component/DefaultTooltipContent";
 import Link from "next/link";
 import { useAuthStore } from "@/core/auth/store";
 import { useDataStore } from "@/core/db/store";
@@ -256,10 +257,10 @@ export default function DashboardPage() {
                     fontSize: 12,
                     fontFamily: "Cairo",
                   }}
-                  formatter={(value: any) => [
+                  formatter={(value: ValueType | undefined) => value ? [
                     formatCurrency(value as number),
                     "المبيعات",
-                  ]}
+                  ] : ['0', '']}
                   labelFormatter={(label: any) => `تاريخ: ${label}`}
                 />
                 <Line
@@ -317,7 +318,7 @@ export default function DashboardPage() {
                       fontSize: 12,
                       fontFamily: "Cairo",
                     }}
-                    formatter={(value: any) => [`${value}%`, "الحصة"]}
+                    formatter={(value: ValueType | undefined) => value ? [`${value}%`, "الحصة"] : ['0', '']}
                   />
                   <Legend
                     wrapperStyle={{ fontSize: 12, paddingTop: "10px" }}
