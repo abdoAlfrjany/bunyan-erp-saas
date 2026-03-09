@@ -1,0 +1,4 @@
+3_UI_UX_GUIDELINES.md
+2_DATABASE_SCHEMA.md
+1_SYSTEM_RULES.md
+in C:\Users\abdo\Documents\erb\1\libya-erp-saas 2\_DOCS

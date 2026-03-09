@@ -135,6 +135,7 @@ interface Order {
   status: "pending" | "delivered" | "cancelled";
   courierId?: string; // يتم ربط الطلبية بشركة توصيل (إلزامي إذا تم التوصيل الخارجي)
   shipmentTracking?: string;
+  createdBy: string; // إجباري — يجب تعبئته عند إنشاء الطلبية
   createdAt: string;
 }
 ```
@@ -197,7 +198,7 @@ interface Partner {
   phone: string;
   profitPercentage: number; // يجب أن يخضع للحد الأقصى (الكمية المتبقية من 100%)
   capitalContribution: number;
-  deliveryFeePerOrder?: number;
+  deliveryFeePerOrder?: number; // رسوم التوصيل لكل طلبية
   walletBalance: number;
   debtBalance: number;
   isActive: boolean;
@@ -206,7 +207,7 @@ interface Partner {
 
 ### `Debt` (الديون)
 
-```typescript
+````typescript
 interface Debt {
   id: string;
   tenantId: string;
@@ -229,7 +230,24 @@ interface Debt {
   description: string;
   createdAt: string;
 }
-```
+
+### `TreasuryTransaction` (الحركات المالية)
+
+```typescript
+interface TreasuryTransaction {
+  id: string;
+  tenantId: string;
+  accountId: string;
+  transactionType: "income" | "expense" | "sale" | "courier_settlement" | "partner_withdrawal" | "profit_distribution_record";
+  amount: number;
+  description: string;
+  createdBy: string; // إجباري — يجب تعبئته عند تسجيل الحركة المالية
+  createdAt: string;
+  transactionDate: string;
+}
+````
+
+````
 
 ---
 
@@ -254,7 +272,7 @@ interface Employee {
   advanceBalance: number;
   isActive: boolean;
 }
-```
+````
 
 ---
 

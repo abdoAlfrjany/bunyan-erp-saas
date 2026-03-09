@@ -39,6 +39,12 @@ interface DataState {
   // Tenant-filtered getter
   getForTenant: <T extends { tenantId: string }>(data: T[], tenantId: string) => T[];
 
+  // ═══ Categories & Units ═══
+  customCategories: Record<string, string[]>;
+  addCustomCategory: (category: string, tenantId: string) => void;
+  customUnits: string[];
+  addCustomUnit: (unit: string) => void;
+
   // ═══ Products ═══
   addProduct: (p: Product) => void;
   updateProduct: (id: string, data: Partial<Product>) => void;
@@ -119,51 +125,85 @@ export const useDataStore = create<DataState>()(
   customers: SEED_CUSTOMERS,
   announcements: [],
   auditLogs: [],
+  customCategories: {},
+  customUnits: [],
 
   getForTenant: <T extends { tenantId: string }>(data: T[], tenantId: string) =>
     data.filter((item) => item.tenantId === tenantId),
 
+  addCustomCategory: (category, tenantId) => set((s) => {
+    const existing = s.customCategories[tenantId] || [];
+    if (existing.includes(category)) return s;
+    return { 
+      customCategories: { 
+        ...s.customCategories, 
+        [tenantId]: [...existing, category] 
+      } 
+    };
+  }),
+
+  addCustomUnit: (unit) => set((s) => {
+    if (s.customUnits.includes(unit)) return s;
+    return { customUnits: [...s.customUnits, unit] };
+  }),
+
   // ═══ Products ═══
-  addProduct: (p) => set((s) => {
-    // 1. حساب التكلفة الإجمالية للمنتج الجديد
-    const totalQty = p.productType !== 'simple' && p.variants 
+  addProduct: (p) => {
+    // ══ حماية الخزينة: التحقق قبل الخصم ══
+    const state = get();
+    const totalQty = p.productType !== 'simple' && p.variants
       ? p.variants.reduce((sum, v) => sum + v.quantity, 0)
       : p.quantity;
     const totalCost = totalQty * p.costPrice;
 
-    // 2. تحديث الخزينة بتسجيل السحب
-    const newTreasury = [...s.treasury];
-    const newTransactions = [...s.transactions];
-    
-    // نخصم من أول حساب خزينة "كاش" للمتجر
-    const mainAccountIndex = newTreasury.findIndex(
-      (acc) => acc.tenantId === p.tenantId && acc.accountType === 'cash_in_hand'
-    );
-    
-    if (mainAccountIndex !== -1 && totalCost > 0) {
-      newTreasury[mainAccountIndex] = {
-        ...newTreasury[mainAccountIndex],
-        balance: newTreasury[mainAccountIndex].balance - totalCost
-      };
-      
-      newTransactions.push({
-        id: `tx-newstock-${Date.now()}`,
-        tenantId: p.tenantId,
-        accountId: newTreasury[mainAccountIndex].id,
-        transactionType: 'expense',
-        amount: totalCost,
-        description: `توريد بضاعة: ${p.name}`,
-        createdAt: new Date().toISOString(),
-        transactionDate: new Date().toISOString(),
-      });
+    if (totalCost > 0) {
+      const cashAcc = state.treasury.find(
+        (acc) => acc.tenantId === p.tenantId && acc.accountType === 'cash_in_hand'
+      );
+      const currentBalance = cashAcc?.balance ?? 0;
+      if (totalCost > currentBalance) {
+        // نُبلِّغ الاستدعاء بالفشل عبر throw — الكود في page.tsx يتحقق من isCostExceeding
+        // لكن إذا استُدعيت الدالة مباشرةً، هنا نقف
+        console.warn(`[addProduct] رصيد الخزينة غير كافٍ: ${currentBalance} د.ل < ${totalCost} د.ل`);
+        return; // لا نُنفذ الإضافة
+      }
     }
 
-    return { 
-      products: [p, ...s.products],
-      treasury: newTreasury,
-      transactions: newTransactions
-    };
-  }),
+    set((s) => {
+      // تحديث الخزينة بتسجيل السحب
+      const newTreasury = [...s.treasury];
+      const newTransactions = [...s.transactions];
+
+      // نخصم من أول حساب خزينة "كاش" للمتجر
+      const mainAccountIndex = newTreasury.findIndex(
+        (acc) => acc.tenantId === p.tenantId && acc.accountType === 'cash_in_hand'
+      );
+
+      if (mainAccountIndex !== -1 && totalCost > 0) {
+        newTreasury[mainAccountIndex] = {
+          ...newTreasury[mainAccountIndex],
+          balance: newTreasury[mainAccountIndex].balance - totalCost
+        };
+
+        newTransactions.push({
+          id: `tx-newstock-${Date.now()}`,
+          tenantId: p.tenantId,
+          accountId: newTreasury[mainAccountIndex].id,
+          transactionType: 'expense',
+          amount: totalCost,
+          description: `توريد بضاعة: ${p.name} × ${totalQty} قطعة بسعر ${p.costPrice} د.ل`,
+          createdAt: new Date().toISOString(),
+          transactionDate: new Date().toISOString(),
+        });
+      }
+
+      return {
+        products: [p, ...s.products],
+        treasury: newTreasury,
+        transactions: newTransactions
+      };
+    });
+  },
   updateProduct: (id, data) => set((s) => {
     const p = s.products.find(x => x.id === id);
     if (!p) return s;
@@ -177,25 +217,41 @@ export const useDataStore = create<DataState>()(
     // 1. معالجة التأثير المالي إذا تم زيادة الكمية بشكل إضافي
     if (data.quantity !== undefined && data.quantity > p.quantity) {
       const addedQty = data.quantity - p.quantity;
-      const addedCost = addedQty * p.costPrice;
-      
+      // السعر الفعلي للدفعة الجديدة: إذا أُرسل costPrice الجديد نستخدمه، وإلا نستخدم القديم
+      const newPrice = data.costPrice !== undefined ? data.costPrice : p.costPrice;
+      const addedCost = addedQty * newPrice;
+
       const mainAccountIndex = newTreasury.findIndex(
         (acc) => acc.tenantId === p.tenantId && acc.accountType === 'cash_in_hand'
       );
-      
+
+      // ══ حماية الخزينة عند تعزيز الكمية ══
       if (mainAccountIndex !== -1 && addedCost > 0) {
+        const currentBalance = newTreasury[mainAccountIndex].balance;
+        if (addedCost > currentBalance) {
+          console.warn(`[updateProduct] رصيد الخزينة غير كافٍ: ${currentBalance} د.ل < ${addedCost} د.ل`);
+          return s; // نُوقف العملية كاملاً بإرجاع الحالة القديمة
+        }
+
+        // WAC للوصف
+        const oldQty = p.quantity;
+        const oldCost = p.costPrice;
+        const newWAC = (oldQty + addedQty) > 0
+          ? Math.round(((oldQty * oldCost) + (addedQty * newPrice)) / (oldQty + addedQty))
+          : Math.round(newPrice);
+
         newTreasury[mainAccountIndex] = {
           ...newTreasury[mainAccountIndex],
           balance: newTreasury[mainAccountIndex].balance - addedCost
         };
-        
+
         newTransactions.push({
           id: `tx-addstock-${Date.now()}`,
           tenantId: p.tenantId,
           accountId: newTreasury[mainAccountIndex].id,
           transactionType: 'expense',
           amount: addedCost,
-          description: `تعزيز كمية: ${p.name} (+${addedQty} ${p.unit})`,
+          description: `تعزيز مخزون: ${p.name} × ${addedQty} قطعة بسعر ${newPrice} د.ل — WAC جديد: ${newWAC} د.ل`,
           createdAt: new Date().toISOString(),
           transactionDate: new Date().toISOString(),
         });
