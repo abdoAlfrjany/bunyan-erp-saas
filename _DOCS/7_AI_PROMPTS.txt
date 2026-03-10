@@ -104,10 +104,10 @@ node_modules
 - _DOCS/5_MODULES_MAP.md
 - _DOCS/6_SESSION_CONTEXT.md
 
-وافهم الية عمل النظام 
-
+افهم كل شي يخص هذا النظام وهذا الملفاتٍ
+دون عمل run ٍٍٍٍ
 ــــــــــــــــــــــــــــــــــــ
-cloude sounnet 
+cloude sounnet + planning ٍ
 
 
 
@@ -115,7 +115,8 @@ cloude sounnet
 
  🔴 نهاية كل جلسة — ثلاث خطوات
 
----
+ـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+
 اقرأ هذه الملفات أولاً:
 - _DOCS/1_SYSTEM_RULES.md
 - _DOCS/2_DATABASE_SCHEMA.md
@@ -146,9 +147,14 @@ cloude sounnet
 
 ### الخطوة 3 — احفظ على GitHub:
 ```
+ـــــــــــــــــــ
 git add .
 git commit -m "وصف ما تم في الجلسة"
 git push
+
+
+ـــــــــــــــــــ
+
 ```
 
 
