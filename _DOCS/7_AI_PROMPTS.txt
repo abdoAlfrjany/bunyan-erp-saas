@@ -1,50 +1,132 @@
 
-بداية كل جلسة 
+## 🟢 بداية كل جلسة — خطوتان
 
- هذه الملفات أولاً من GitHub أو المشروع:
+
+### الخطوة 1 — أرفق ملفات _DOCS الستة + أرسل هذا:
+
+الملفات المرفقة:
+```
+_DOCS/1_SYSTEM_RULES.md
+_DOCS/2_DATABASE_SCHEMA.md
+_DOCS/3_UI_UX_GUIDELINES.md
+_DOCS/4_WORKFLOWS.md
+_DOCS/5_MODULES_MAP.md
+_DOCS/6_SESSION_CONTEXT.md
+```
+
+النص:
+```
+اقرأ هذه الملفات المرفقة بالترتيب — هي ذاكرة النظام الكاملة:
+1. 1_SYSTEM_RULES.md      ← قواعد النظام والمحظورات
+2. 2_DATABASE_SCHEMA.md   ← هيكل قاعدة البيانات
+3. 3_UI_UX_GUIDELINES.md  ← معايير التصميم
+4. 4_WORKFLOWS.md         ← آلية عمل كل وحدة
+5. 5_MODULES_MAP.md       ← خريطة المشروع والملفات
+6. 6_SESSION_CONTEXT.md   ← آخر تحديث وما تم إنجازه
+
+لا ترد بعد — انتظر الخطوة التالية.
+```
+
+---
+
+### الخطوة 2 — أرفق كل ملفات الكود + أرسل هذا:
+
+الملفات المرفقة (كل شيء بدون node_modules و .next و .git):
+```
+src/core/types/index.ts
+src/core/db/store.ts
+src/core/db/seed.ts
+src/app/(tenant)/inventory/page.tsx
+src/app/(tenant)/orders/page.tsx
+src/app/(tenant)/treasury/page.tsx
+src/app/(tenant)/hr/page.tsx
+src/app/(tenant)/dashboard/page.tsx
+src/app/(tenant)/partners/page.tsx
+src/app/(tenant)/delivery/page.tsx
+src/app/(tenant)/debts/page.tsx
+src/app/(tenant)/analytics/page.tsx
+src/app/(tenant)/settings/page.tsx
+src/shared/components/ui/AddProductSlideOver.tsx
+src/shared/components/ui/Toast.tsx
+src/shared/utils/format.ts
+middleware.ts
+```
+
+النص:
+```
+أنت الآن المساعد الأول في مشروع Bunyan ERP SaaS — السوق الليبي.
+
+اقرأ كل الملفات المرفقة. هذه قاعدة الكود الكاملة للمشروع.
+
+دورك في هذه الجلسة:
+- تفهم السياق الكامل من ملفات _DOCS والكود
+- عندما أطلب تعديلاً، أنت تحدد أي الملفات تحتاج تعديلاً
+- تعطيني أوامر مفصلة جاهزة لـ Antigravity مع النموذج المناسب
+- لا تعدّل أي ملف مباشرة — أنت تعطي الأوامر فقط
+
+قواعد صياغة الأوامر لـ Antigravity:
+- تبدأ دائماً بـ: "اقرأ هذه الملفات أولاً"
+- تنتهي دائماً بـ: "لا تشغّل أي أوامر في Terminal. عدّل الملف مباشرة فقط."
+- تحدد النموذج المناسب قبل كل أمر
+
+المطلوب اليوم: [اكتب هنا ما تريد تعمله]
+```
+
+ـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+
+ 🔴 نهاية كل جلسة — ثلاث خطوات
+
+---
+اقرأ هذه الملفات أولاً:
 - _DOCS/1_SYSTEM_RULES.md
 - _DOCS/2_DATABASE_SCHEMA.md
 - _DOCS/3_UI_UX_GUIDELINES.md
 - _DOCS/4_WORKFLOWS.md
 - _DOCS/5_MODULES_MAP.md
 - _DOCS/6_SESSION_CONTEXT.md
-- _DOCS/6_SESSION_CONTEXT.md
 
-أنت المساعد الأول. دورك:
-- تقرأ المشروع وتفهم السياق
-- تعطيني أوامر مفصلة جاهزة لـ Antigravity
-- تحدد النموذج المناسب لكل أمر
-- لا تعدّل أي ملف مباشرة
+ثم اقرأ كل الملفات التي تم تعديلها في هذه الجلسة.
 
-المشروع: Bunyan ERP SaaS — السوق الليبي
-المطلوب اليوم: [اكتب هنا ما تريد تعمله]
+قارن الكود الفعلي مع محتوى ملفات _DOCS وأجب:
+1. هل يوجد قواعد جديدة في الكود غير موثقة في _DOCS؟
+2. هل يوجد تغييرات في Schema غير مسجلة في 2_DATABASE_SCHEMA.md؟
+3. هل يوجد مكونات أو أنماط تصميم جديدة غير مذكورة في 3_UI_UX_GUIDELINES.md؟
+4. هل يوجد workflows جديدة غير موثقة في 4_WORKFLOWS.md؟
+5. هل 6_SESSION_CONTEXT.md يعكس آخر حالة للمشروع؟
 
+ثم عدّل الملفات التي تحتاج تحديثاً فقط.
+لا تشغّل أي أوامر في Terminal. عدّل الملفات مباشرة فقط.
 
+ترتيب نهاية الجلسة الكامل:
 
-
-ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
-
-
-
-نهاية كل جلسة 
-لخّص هذه الجلسة وأعطني محتوى محدّث لـ _DOCS/6_SESSION_CONTEXT.md
-يشمل:
-- ما تم إنجازه اليوم
-- الملفات التي تغيرت
-- الوحدات القادمة
-- أي ملاحظات تقنية جديدة
+الخطوة 1 → Claude Sonnet: التحقق وتحديث _DOCS
 
 
+ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
 
 
-
-ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+### الخطوة 3 — احفظ على GitHub:
+```
+git add .
+git commit -m "وصف ما تم في الجلسة"
+git push
+```
 
 
 
+## 🔄 سير عمل صديقك للتزامن
 
+```bash
+# أول مرة فقط:
+git clone https://github.com/abdoAlfrjany/bunyan-erp-saas.git
+cd bunyan-erp-saas
+npm install
+npm run dev
 
+# كل جلسة بعدها:
+git pull
+npm run dev
+```
 
-
-
+ـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــتت
 
