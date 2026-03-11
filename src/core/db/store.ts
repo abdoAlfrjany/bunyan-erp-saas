@@ -53,6 +53,7 @@ interface DataState {
   // ═══ Orders ═══
   addOrder: (o: Order) => { success: boolean; error?: string };
   updateOrderStatus: (id: string, status: Order['status'], paymentStatus?: Order['paymentStatus']) => void;
+  deleteOrder: (id: string) => void;
 
   // ═══ Couriers ═══
   addCourier: (c: CourierCompany) => void;
@@ -453,6 +454,41 @@ export const useDataStore = create<DataState>()(
       };
     });
     return { success: true };
+  },
+
+  deleteOrder: (id) => {
+    const state = get();
+    const order = state.orders.find(o => o.id === id);
+    if (!order) return;
+    if (order.status !== 'pending' && order.status !== 'processing') return;
+
+    set((s) => {
+      const newProducts = s.products.map(p => {
+        const orderItemsForProduct = order.items.filter(i => i.productId === p.id);
+        if (orderItemsForProduct.length === 0) return p;
+        
+        const newP = { ...p, variants: p.variants ? p.variants.map(v => ({...v})) : undefined };
+        let totalRestored = 0;
+        
+        for (const item of orderItemsForProduct) {
+          totalRestored += item.quantity;
+          if (newP.productType !== 'simple' && item.variantSize && newP.variants) {
+            const vIndex = newP.variants.findIndex(v => v.size === item.variantSize);
+            if (vIndex !== -1) {
+              newP.variants[vIndex].quantity += item.quantity;
+            }
+          }
+        }
+        
+        newP.quantity += totalRestored;
+        return newP;
+      });
+
+      return {
+        orders: s.orders.filter(o => o.id !== id),
+        products: newProducts
+      };
+    });
   },
 
   updateOrderStatus: (id, status, paymentStatus) => {

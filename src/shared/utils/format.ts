@@ -52,6 +52,19 @@ export const formatDateShort = (dateStr: string): string => {
 };
 
 /**
+ * تنسيق التاريخ المجهري (يوم/شعر/سنة)
+ * "2025-01-05" → "05/01/25"
+ */
+export const formatDateTiny = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+};
+
+/**
  * تنسيق الوقت النسبي
  * "قبل 5 دقائق" / "منذ ساعة"
  */

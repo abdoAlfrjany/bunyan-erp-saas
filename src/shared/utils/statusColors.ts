@@ -5,13 +5,13 @@
 // ═══ حالات الطلبيات ═══
 export const ORDER_STATUS = {
   pending:          { label: 'جديدة',              bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200', dot: 'bg-amber-500' },
-  processing:       { label: 'قيد التجهيز',        bg: 'bg-indigo-50',  text: 'text-indigo-800',  border: 'border-indigo-200', dot: 'bg-indigo-500' },
-  with_partner:     { label: 'مع المندوب',         bg: 'bg-violet-50',  text: 'text-violet-800',  border: 'border-violet-200', dot: 'bg-violet-500' },
-  with_courier:     { label: 'مع شركة التوصيل',   bg: 'bg-cyan-50',    text: 'text-cyan-800',    border: 'border-cyan-200',  dot: 'bg-cyan-500' },
-  delivered:        { label: 'تم التوصيل ✓',      bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+  processing:       { label: 'جديدة',        bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200', dot: 'bg-amber-500' },
+  with_partner:     { label: 'قيد التوصيل',         bg: 'bg-orange-50',  text: 'text-orange-800',  border: 'border-orange-200', dot: 'bg-orange-400' },
+  with_courier:     { label: 'قيد التوصيل',   bg: 'bg-orange-50',  text: 'text-orange-800',  border: 'border-orange-200', dot: 'bg-orange-400' },
+  delivered:        { label: 'مسلّمة ✓',      bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', dot: 'bg-emerald-500' },
   cancelled:        { label: 'ملغاة',              bg: 'bg-red-50',     text: 'text-red-800',     border: 'border-red-200',   dot: 'bg-red-500' },
-  pending_return:   { label: '⚠️ معلق للإرجاع',   bg: 'bg-yellow-50',  text: 'text-yellow-800',  border: 'border-yellow-300', dot: 'bg-yellow-500' },
-  return_confirmed: { label: 'مُرجَع',            bg: 'bg-gray-50',    text: 'text-gray-700',    border: 'border-gray-200',  dot: 'bg-gray-500' },
+  pending_return:   { label: 'معلقة للإرجاع',   bg: 'bg-gray-50',    text: 'text-gray-700',    border: 'border-gray-200',  dot: 'bg-gray-400' },
+  return_confirmed: { label: 'ملغاة',            bg: 'bg-red-50',     text: 'text-red-800',     border: 'border-red-200',   dot: 'bg-red-500' },
   pickup:           { label: 'استلام من المحل',    bg: 'bg-purple-50',  text: 'text-purple-800',  border: 'border-purple-200', dot: 'bg-purple-500' },
 } as const;
 

@@ -5,10 +5,10 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuthStore } from "@/core/auth/store";
 import { useDataStore } from "@/core/db/store";
-import { formatCurrency, formatDate } from "@/shared/utils/format";
+import { formatCurrency, formatDate, formatDateTiny } from "@/shared/utils/format";
 import { SlideOver } from "@/shared/components/ui/SlideOver";
 import { ConfirmDialog } from "@/shared/components/ui/ConfirmDialog";
 import { useToast } from "@/shared/components/ui/Toast";
@@ -28,6 +28,7 @@ import {
   Calendar,
   Percent,
   X,
+  ChevronDown,
 } from "lucide-react";
 import type { Order, Product } from "@/core/db/seed";
 
@@ -138,6 +139,7 @@ export default function OrdersPage() {
     getForTenant,
     addOrder,
     updateOrderStatus,
+    deleteOrder,
   } = useDataStore();
   const { showToast } = useToast();
   const tid = user?.tenantId || "";
@@ -154,11 +156,27 @@ export default function OrdersPage() {
 
   // الواجهة
   const [slideOpen, setSlideOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
+  const [viewOrder, setViewOrder] = useState<Order | null>(null);
+  const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     id: string;
     status: Order["status"];
     label: string;
   } | null>(null);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+
+  // إغلاق الـ Dropdown عند الضغط خارجه
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-dropdown="true"]')) {
+        setOpenDropdownId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // نموذج طلبية جديدة
   const [newOrder, setNewOrder] = useState({
@@ -218,7 +236,19 @@ export default function OrdersPage() {
   // الخطوة الثانية: تطبيق فلتر الحالة فوق dateFiltered
   const filtered = useMemo(() => {
     if (statusFilter === "all") return dateFiltered;
-    return dateFiltered.filter((o) => o.status === statusFilter);
+    
+    return dateFiltered.filter((o) => {
+      if (statusFilter === "pending") {
+        return o.status === "pending" || o.status === "processing";
+      }
+      if (statusFilter === "with_courier") {
+        return o.status === "with_courier" || o.status === "with_partner";
+      }
+      if (statusFilter === "cancelled") {
+        return o.status === "cancelled" || o.status === "return_confirmed";
+      }
+      return o.status === statusFilter;
+    });
   }, [dateFiltered, statusFilter]);
 
   // ═══ إدارة عناصر الطلبية ═══
@@ -288,7 +318,7 @@ export default function OrdersPage() {
     newOrder.deliveryType,
   ]);
 
-  // ═══ إنشاء الطلبية ═══
+  // ═══ إنشاء أو تعديل الطلبية ═══
   const handleCreateOrder = () => {
     if (
       !newOrder.customerName ||
@@ -338,47 +368,88 @@ export default function OrdersPage() {
       return;
     }
 
-    const orderNum = `ORD-${new Date().getFullYear()}-${String(myOrders.length + 1).padStart(4, "0")}`;
     const { subtotal, deliveryFee, discount, total } = orderCalculations;
 
-    const order: Order = {
-      id: `ord-${Date.now()}`,
-      tenantId: tid,
-      orderNumber: orderNum,
-      customerName: newOrder.customerName,
-      customerPhone: newOrder.customerPhone,
-      customerAddress: newOrder.customerAddress,
-      customerCity: newOrder.customerCity,
-      deliveryType: newOrder.deliveryType,
-      courierCompanyId: newOrder.courierId || undefined,
-      deliveryFee,
-      status: "pending",
-      subtotal,
-      discount,
-      total,
-      priceIncludesDelivery: newOrder.priceIncludesDelivery,
-      paymentStatus: "pending",
-      source: "direct",
-      notes: newOrder.notes || undefined,
-      createdAt: new Date().toISOString().split("T")[0],
-      items: validItems.map((item, idx) => {
-        const p = myProducts.find((pr) => pr.id === item.productId) as Product;
-        return {
-          id: `oi-new-${Date.now()}-${idx}`,
-          productId: p.id,
-          productName: item.variantSize
-            ? `${p.name} - مقاس: ${item.variantSize}`
-            : p.name,
-          variantSize: item.variantSize,
-          quantity: item.quantity,
-          unitPrice: p.sellingPrice,
-          unitCost: p.costPrice,
-          total: p.sellingPrice * item.quantity,
-        };
-      }),
-    };
+    if (editOrder) {
+      deleteOrder(editOrder.id);
+      
+      const order: Order = {
+        ...editOrder, // للحفاظ على id, createdAt, orderNumber, status
+        customerName: newOrder.customerName,
+        customerPhone: newOrder.customerPhone,
+        customerAddress: newOrder.customerAddress,
+        customerCity: newOrder.customerCity,
+        deliveryType: newOrder.deliveryType,
+        courierCompanyId: newOrder.courierId || undefined,
+        deliveryFee,
+        subtotal,
+        discount,
+        total,
+        priceIncludesDelivery: newOrder.priceIncludesDelivery,
+        notes: newOrder.notes || undefined,
+        items: validItems.map((item, idx) => {
+          const p = myProducts.find((pr) => pr.id === item.productId) as Product;
+          return {
+            id: `oi-edit-${Date.now()}-${idx}`,
+            productId: p.id,
+            productName: item.variantSize
+              ? `${p.name} - مقاس: ${item.variantSize}`
+              : p.name,
+            variantSize: item.variantSize,
+            quantity: item.quantity,
+            unitPrice: p.sellingPrice,
+            unitCost: p.costPrice,
+            total: p.sellingPrice * item.quantity,
+          };
+        }),
+      };
+      
+      addOrder(order);
+      setEditOrder(null);
+      showToast('تم تعديل الطلبية بنجاح');
+    } else {
+      const orderNum = `ORD-${new Date().getFullYear()}-${String(myOrders.length + 1).padStart(4, "0")}`;
+      const order: Order = {
+        id: `ord-${Date.now()}`,
+        tenantId: tid,
+        orderNumber: orderNum,
+        customerName: newOrder.customerName,
+        customerPhone: newOrder.customerPhone,
+        customerAddress: newOrder.customerAddress,
+        customerCity: newOrder.customerCity,
+        deliveryType: newOrder.deliveryType,
+        courierCompanyId: newOrder.courierId || undefined,
+        deliveryFee,
+        status: "pending",
+        subtotal,
+        discount,
+        total,
+        priceIncludesDelivery: newOrder.priceIncludesDelivery,
+        paymentStatus: "pending",
+        source: "direct",
+        notes: newOrder.notes || undefined,
+        createdAt: new Date().toISOString().split("T")[0],
+        items: validItems.map((item, idx) => {
+          const p = myProducts.find((pr) => pr.id === item.productId) as Product;
+          return {
+            id: `oi-new-${Date.now()}-${idx}`,
+            productId: p.id,
+            productName: item.variantSize
+              ? `${p.name} - مقاس: ${item.variantSize}`
+              : p.name,
+            variantSize: item.variantSize,
+            quantity: item.quantity,
+            unitPrice: p.sellingPrice,
+            unitCost: p.costPrice,
+            total: p.sellingPrice * item.quantity,
+          };
+        }),
+      };
 
-    addOrder(order); // هذا سيقوم بخصم المخزون تلقائياً بسبب المنطق في store.ts
+      addOrder(order);
+      showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
+    }
+
     setSlideOpen(false);
     setNewOrder({
       customerName: "",
@@ -392,7 +463,6 @@ export default function OrdersPage() {
       priceIncludesDelivery: false,
     });
     setOrderItems([]);
-    showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
   };
 
   // ═══ تغيير حالة الطلبية ═══
@@ -426,12 +496,9 @@ export default function OrdersPage() {
   const statusFiltersList: { key: StatusFilter; label: string; dot?: string }[] = [
     { key: "all", label: "الكل" },
     { key: "pending", label: "جديدة", dot: "bg-amber-400" },
-    { key: "processing", label: "تجهيز", dot: "bg-cyan-400" },
-    { key: "with_courier", label: "توصيل", dot: "bg-orange-400" },
-    { key: "with_partner", label: "مع شريك", dot: "bg-orange-400" },
+    { key: "with_courier", label: "قيد التوصيل", dot: "bg-orange-400" },
     { key: "delivered", label: "مسلّمة", dot: "bg-emerald-400" },
     { key: "pending_return", label: "معلقة للإرجاع", dot: "bg-gray-400" },
-    { key: "return_confirmed", label: "مرتجع مؤكد", dot: "bg-red-400" },
     { key: "cancelled", label: "ملغاة", dot: "bg-red-400" },
   ];
 
@@ -476,16 +543,12 @@ export default function OrdersPage() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold text-gray-400 pr-1">من تاريخ</label>
-              <div className="relative min-w-[140px]">
-                <Calendar
-                  size={14}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
+              <div className="min-w-[140px]">
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="w-full pr-8 pl-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all font-mono"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all font-mono"
                 />
               </div>
             </div>
@@ -494,16 +557,12 @@ export default function OrdersPage() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold text-gray-400 pr-1">إلى تاريخ</label>
-              <div className="relative min-w-[140px]">
-                <Calendar
-                  size={14}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
+              <div className="min-w-[140px]">
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  className="w-full pr-8 pl-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all font-mono"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all font-mono"
                 />
               </div>
             </div>
@@ -517,6 +576,12 @@ export default function OrdersPage() {
               const count =
                 f.key === "all"
                   ? dateFiltered.length
+                  : f.key === "pending"
+                  ? dateFiltered.filter((o) => o.status === "pending" || o.status === "processing").length
+                  : f.key === "with_courier"
+                  ? dateFiltered.filter((o) => o.status === "with_courier" || o.status === "with_partner").length
+                  : f.key === "cancelled"
+                  ? dateFiltered.filter((o) => o.status === "cancelled" || o.status === "return_confirmed").length
                   : dateFiltered.filter((o) => o.status === f.key).length;
               return (
                 <button
@@ -575,8 +640,8 @@ export default function OrdersPage() {
                 <th className="px-6 py-4">الزبون و المدينة</th>
                 <th className="px-6 py-4">الحالة</th>
                 <th className="px-6 py-4">الإجمالي</th>
-                <th className="px-6 py-4">التاريخ</th>
-                <th className="px-6 py-4 text-center">تحديث الحالة</th>
+                <th className="px-6 py-4 font-center">التاريخ</th>
+                <th className="px-6 py-4 text-center">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -606,18 +671,53 @@ export default function OrdersPage() {
                         <span dir="ltr">{o.customerPhone}</span>
                       </p>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 relative">
                       {statusInfo ? (
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusInfo.bg} ${statusInfo.text} border ${statusInfo.border || "border-transparent"}`}
-                        >
-                          {statusInfo.dot && (
+                        <div className="relative inline-block" data-dropdown="true">
+                          {actions.length > 0 ? (
+                            <button
+                              onClick={() => setOpenDropdownId(openDropdownId === o.id ? null : o.id)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusInfo.bg} ${statusInfo.text} border ${statusInfo.border || "border-transparent"} hover:bg-opacity-80 transition-all`}
+                            >
+                              {statusInfo.dot && (
+                                <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />
+                              )}
+                              {statusInfo.label}
+                              <ChevronDown size={12} className={`transition-transform duration-200 ${openDropdownId === o.id ? "rotate-180" : ""}`} />
+                            </button>
+                          ) : (
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`}
-                            />
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusInfo.bg} ${statusInfo.text} border ${statusInfo.border || "border-transparent"}`}
+                            >
+                              {statusInfo.dot && (
+                                <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />
+                              )}
+                              {statusInfo.label}
+                            </span>
                           )}
-                          {statusInfo.label}
-                        </span>
+
+                          {/* القائمة المنسدلة (Dropdown) */}
+                          {openDropdownId === o.id && actions.length > 0 && (
+                            <div className="absolute top-full right-0 mt-1 w-44 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                              <div className="p-1 px-1.5 py-1.5 bg-gray-50/50 border-b border-gray-100 text-[10px] font-bold text-gray-400">تغيير الحالة إلى:</div>
+                              <div className="p-1">
+                                {actions.map((a) => (
+                                  <button
+                                    key={a.status}
+                                    onClick={() => {
+                                      handleStatusChange(o.id, a.status);
+                                      setOpenDropdownId(null);
+                                    }}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold ${a.bg} ${a.text} ${a.hover} transition-colors text-right mb-0.5 last:mb-0`}
+                                  >
+                                    {a.icon}
+                                    {a.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-500">{o.status}</span>
                       )}
@@ -632,26 +732,61 @@ export default function OrdersPage() {
                         </p>
                       ) : null}
                     </td>
-                    <td className="px-6 py-4 text-gray-500 text-xs">
-                      {formatDate(o.createdAt)}
+                    <td className="px-6 py-4 text-gray-700 text-sm font-medium text-right">
+                      <span dir="ltr">
+                        {new Date(o.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex gap-1.5 flex-wrap justify-center">
-                        {actions.map((a) => (
+                      <div className="flex gap-2 justify-center">
+                        <button 
+                          onClick={() => setViewOrder(o)}
+                          className="p-1.5 rounded-lg transition-colors text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                          title="تفاصيل الطلبية"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setEditOrder(o);
+                            setNewOrder({
+                              customerName: o.customerName,
+                              customerPhone: o.customerPhone,
+                              customerAddress: o.customerAddress || '',
+                              customerCity: o.customerCity || '',
+                              deliveryType: o.deliveryType,
+                              courierId: o.courierCompanyId || '',
+                              notes: o.notes || '',
+                              discount: o.discount || 0,
+                              priceIncludesDelivery: o.priceIncludesDelivery,
+                            });
+                            setOrderItems(o.items.map(i => ({
+                              productId: i.productId,
+                              quantity: i.quantity,
+                              variantSize: i.variantSize || ''
+                            })));
+                          }}
+                          disabled={["delivered", "cancelled", "return_confirmed"].includes(o.status)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            ["delivered", "cancelled", "return_confirmed"].includes(o.status)
+                              ? 'opacity-30 cursor-not-allowed text-gray-400'
+                              : 'text-gray-400 hover:text-bunyan-600 hover:bg-bunyan-50'
+                          }`}
+                          title="تعديل الطلبية"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        </button>
+                        
+                        {/* زر الحذف للحالات الجديدة فقط */}
+                        {["pending", "processing"].includes(o.status) && (
                           <button
-                            key={a.status}
-                            onClick={() => handleStatusChange(o.id, a.status)}
-                            className={`flex items-center gap-1 px-2.5 py-1.5 ${a.bg} ${a.text} ${a.hover} border border-transparent rounded-lg text-xs font-bold transition-colors`}
-                            title={`تغيير الحالة إلى ${a.label}`}
+                            onClick={() => setDeleteOrderId(o.id)}
+                            className="p-1.5 rounded-lg transition-colors text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            title="حذف الطلبية"
                           >
-                            {a.icon}
-                            <span className="hidden xl:inline">{a.label}</span>
+                            <Trash2 size={16} />
                           </button>
-                        ))}
-                        {actions.length === 0 && (
-                          <span className="text-xs text-gray-400">
-                            لا يوجد إجراء
-                          </span>
                         )}
                       </div>
                     </td>
@@ -677,11 +812,11 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* ═══ SlideOver: إنشاء طلبية جديدة ═══ */}
+      {/* ═══ SlideOver: إنشاء / تعديل طلبية ═══ */}
       <SlideOver
-        isOpen={slideOpen}
-        onClose={() => setSlideOpen(false)}
-        title="إنشاء طلبية جديدة"
+        isOpen={slideOpen || !!editOrder}
+        onClose={() => { setSlideOpen(false); setEditOrder(null); }}
+        title={editOrder ? "تعديل الطلبية" : "إنشاء طلبية جديدة"}
         width="w-full sm:max-w-6xl"
       >
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full pb-20">
@@ -1113,11 +1248,95 @@ export default function OrdersPage() {
                 onClick={handleCreateOrder}
                 className="w-full sm:w-[300px] py-3 bg-bunyan-600 text-white font-bold rounded-xl hover:bg-bunyan-700 transition-all text-sm shadow-md"
               >
-                اعتماد وإنشاء الفاتورة
+                {editOrder ? "حفظ التعديلات" : "اعتماد وإنشاء الفاتورة"}
               </button>
             </div>
           </div>
         </div>
+      </SlideOver>
+
+      {/* ═══ SlideOver: تفاصيل الطلبية ═══ */}
+      <SlideOver
+        isOpen={!!viewOrder}
+        onClose={() => setViewOrder(null)}
+        title="تفاصيل الطلبية"
+        width="w-full sm:max-w-lg"
+      >
+        {viewOrder && (
+          <div className="space-y-6 pb-6">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-lg font-black text-gray-900 font-mono">{viewOrder.orderNumber}</h3>
+                <p className="text-sm text-gray-500">{formatDate(viewOrder.createdAt)}</p>
+              </div>
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${ORDER_STATUS[viewOrder.status as keyof typeof ORDER_STATUS]?.bg} ${ORDER_STATUS[viewOrder.status as keyof typeof ORDER_STATUS]?.text}`}>
+                {ORDER_STATUS[viewOrder.status as keyof typeof ORDER_STATUS]?.label}
+              </span>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">بيانات الزبون</h4>
+              <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm border border-gray-100">
+                <p><span className="text-gray-500 w-16 inline-block">الاسم:</span> <span className="font-bold text-gray-900">{viewOrder.customerName}</span></p>
+                <p><span className="text-gray-500 w-16 inline-block">الهاتف:</span> <span className="font-mono font-bold text-gray-900" dir="ltr">{viewOrder.customerPhone}</span></p>
+                <p><span className="text-gray-500 w-16 inline-block">المدينة:</span> <span className="text-gray-900">{viewOrder.customerCity}</span></p>
+                {viewOrder.customerAddress && (
+                  <p><span className="text-gray-500 w-16 inline-block">العنوان:</span> <span className="text-gray-900">{viewOrder.customerAddress}</span></p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">المنتجات</h4>
+              <div className="border border-gray-100 rounded-xl divide-y divide-gray-100 overflow-hidden">
+                {viewOrder.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-3 text-sm bg-white">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-gray-900">{item.productName}</span>
+                      <span className="text-xs text-gray-500 mt-0.5">
+                        {item.quantity} × {formatCurrency(item.unitPrice)}
+                      </span>
+                    </div>
+                    <span className="font-bold font-mono text-gray-900">{formatCurrency(item.total)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">الملخص المالي</h4>
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-4 text-sm space-y-2">
+                <div className="flex justify-between text-gray-600">
+                  <span>المجموع الفرعي:</span>
+                  <span className="font-mono">{formatCurrency(viewOrder.subtotal)}</span>
+                </div>
+                {viewOrder.discount > 0 && (
+                  <div className="flex justify-between text-red-600 font-medium">
+                    <span>الخصم:</span>
+                    <span className="font-mono">-{formatCurrency(viewOrder.discount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-gray-600 pb-2 border-b border-gray-200">
+                  <span>التوصيل {viewOrder.priceIncludesDelivery && '(مشمول)'}:</span>
+                  <span className="font-mono">{viewOrder.priceIncludesDelivery ? '0 د.ل' : formatCurrency(viewOrder.deliveryFee)}</span>
+                </div>
+                <div className="flex justify-between text-gray-900 font-black text-lg pt-2 mt-2">
+                  <span>الإجمالي:</span>
+                  <span className="font-mono text-bunyan-700">{formatCurrency(viewOrder.total)}</span>
+                </div>
+              </div>
+            </div>
+
+            {viewOrder.notes && (
+              <div>
+                <h4 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">ملاحظات</h4>
+                <div className="bg-yellow-50 text-yellow-800 p-3 rounded-xl text-sm border border-yellow-100">
+                  {viewOrder.notes}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </SlideOver>
 
       {/* ═══ نافذة تأكيد الإجراء ═══ */}
@@ -1141,6 +1360,21 @@ export default function OrdersPage() {
             ? "danger"
             : "primary"
         }
+      />
+
+      <ConfirmDialog
+        isOpen={deleteOrderId !== null}
+        onCancel={() => setDeleteOrderId(null)}
+        onConfirm={() => {
+          if (deleteOrderId) {
+            deleteOrder(deleteOrderId);
+            showToast("تم حذف الطلبية وإعادة المخزون");
+            setDeleteOrderId(null);
+          }
+        }}
+        title="حذف الطلبية"
+        message="هل أنت متأكد من حذف هذه الطلبية؟ سيتم إعادة المخزون تلقائياً"
+        variant="danger"
       />
     </div>
   );
