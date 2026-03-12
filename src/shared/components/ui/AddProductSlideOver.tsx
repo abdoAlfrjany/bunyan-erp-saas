@@ -67,6 +67,33 @@ export function AddProductSlideOver({
   const [isSuccess, setIsSuccess] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // ━━━ حاسبة تكلفة الاستيراد ━━━
+  const [showCalc, setShowCalc] = useState(false);
+  const [calcInvoice, setCalcInvoice] = useState("");
+  const [calcQty, setCalcQty] = useState("");
+  const [calcExchange, setCalcExchange] = useState("");
+  const [calcShipping, setCalcShipping] = useState("");
+  const [calcCommType, setCalcCommType] = useState<"fixed" | "percent">("fixed");
+  const [calcCommVal, setCalcCommVal] = useState("");
+
+  const calculateImportCost = () => {
+    const inv = Number(calcInvoice);
+    const qty = Number(calcQty);
+    const exch = Number(calcExchange);
+    const ship = Number(calcShipping);
+    const commVal = Number(calcCommVal);
+
+    if (!inv || !qty || !exch || !ship) return null;
+
+    const totalUSD = inv + ship;
+    const totalLYD = totalUSD * exch;
+    const commission = calcCommType === "fixed" ? commVal : totalLYD * (commVal / 100);
+    
+    return Math.round((totalLYD + commission) / qty);
+  };
+  const currentCalcResult = calculateImportCost();
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
   // Combobox state
   const [catSearch, setCatSearch] = useState("");
   const [catOpen, setCatOpen] = useState(false);
@@ -375,12 +402,19 @@ export function AddProductSlideOver({
         <div className="overflow-y-auto px-6 py-5 space-y-6 max-h-[75vh]">
 
 
-          {/* Category Combobox */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between pointer-events-auto">
-              <label className="text-xs font-bold text-gray-700 block">
-                فئة المنتج
-              </label>
+          {/* 1. معلومات المنتج */}
+          <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-4">
+              <span>🏷</span>
+              معلومات المنتج
+            </h3>
+            
+            {/* Category Combobox */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pointer-events-auto">
+                <label className="text-xs font-bold text-gray-700 block">
+                  فئة المنتج
+                </label>
               {!isAddingNewCat && (
                 <button
                   type="button"
@@ -494,8 +528,6 @@ export function AddProductSlideOver({
             </div>
           </div>
 
-          {/* Basic Fields */}
-          <div className="space-y-4">
             <div>
               <label className="text-xs font-bold text-gray-700 mb-1.5 block">
                 اسم المنتج <span className="text-red-500">*</span>
@@ -509,6 +541,27 @@ export function AddProductSlideOver({
               />
             </div>
 
+            {profitMargin && (
+              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-200 flex items-center justify-between mt-2">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                  هامش الربح
+                </span>
+                <span
+                  className={`text-xs font-bold flex items-center gap-1 ${Number(profitMargin) > 0 ? "text-emerald-600" : "text-red-500"}`}
+                >
+                  {Number(profitMargin) > 0 ? "+" : ""}
+                  {profitMargin}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* 2. التسعير */}
+          <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-4">
+              <span>💰</span>
+              التسعير
+            </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-gray-700 mb-1.5 block">
@@ -526,6 +579,15 @@ export function AddProductSlideOver({
                     د.ل
                   </span>
                 </div>
+                {/* ━━ زر الحاسبة ━━ */}
+                <button
+                  type="button"
+                  onClick={() => setShowCalc(true)}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-bunyan-200 text-bunyan-600 bg-bunyan-50 hover:bg-bunyan-100 transition-colors text-xs font-bold"
+                >
+                  <span>🧮</span>
+                  احسب من فاتورة الاستيراد
+                </button>
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-700 mb-1.5 block">
@@ -545,32 +607,18 @@ export function AddProductSlideOver({
                 </div>
               </div>
             </div>
-
-            {profitMargin && (
-              <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-200 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                  هامش الربح
-                </span>
-                <span
-                  className={`text-xs font-bold flex items-center gap-1 ${Number(profitMargin) > 0 ? "text-emerald-600" : "text-red-500"}`}
-                >
-                  {Number(profitMargin) > 0 ? "+" : ""}
-                  {profitMargin}%
-                </span>
-              </div>
-            )}
           </div>
 
-          {/* Dynamic Features Engine */}
-          <div className="space-y-4 pt-4 border-t border-gray-100">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                {category === "simple" ? "إدارة المخزون" : "إدارة المتغيرات"}
-              </h3>
-            </div>
-
-            {category === "simple" ? (
-              <div className="space-y-3">
+          {/* 3. إدارة المخزون */}
+          <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-4">
+              <span>📦</span>
+              إدارة المخزون
+            </h3>
+            
+            <div className="grid grid-cols-2 gap-4">
+              {/* الكمية (تظهر فقط للمنتج البسيط) */}
+              {category === "simple" ? (
                 <div>
                   <label className="text-xs font-bold text-gray-700 mb-1.5 block">
                     الكمية <span className="text-red-500">*</span>
@@ -583,37 +631,201 @@ export function AddProductSlideOver({
                     className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none transition-all text-center font-bold text-sm text-gray-900"
                   />
                 </div>
-                {simpleInitCost > 0 && (
-                  <div
-                    className={`p-3 rounded-xl border mb-3 ${isTreasuryInsufficient ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs font-bold text-gray-700">
-                        إجمالي التكلفة:
-                      </span>
-                      <span
-                        className={`text-sm font-bold font-currency ${isTreasuryInsufficient ? "text-red-700" : "text-gray-900"}`}
-                      >
-                        {formatCurrency(simpleInitCost)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500">الرصيد المتاح:</span>
-                      <span
-                        className={`font-bold font-currency ${isTreasuryInsufficient ? "text-red-600" : "text-emerald-600"}`}
-                      >
-                        {formatCurrency(availableTreasury)}
-                      </span>
-                    </div>
-                    {isTreasuryInsufficient && (
-                      <p className="text-red-600 text-[11px] mt-2 pt-2 border-t border-red-200 font-bold flex items-center gap-1">
-                        <AlertCircle size={12} /> التكلفة {formatCurrency(simpleInitCost)} تتجاوز الرصيد {formatCurrency(availableTreasury)} — يلزم {formatCurrency(simpleInitCost - availableTreasury)} إضافية
-                      </p>
-                    )}
+              ) : (
+                <div className="flex flex-col justify-center">
+                  <label className="text-xs font-bold text-gray-700 mb-1.5 block">الكمية الإجمالية</label>
+                  <div className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-center font-bold text-sm text-gray-500 cursor-not-allowed">
+                    {totalMatrixQty} (من المتغيرات)
                   </div>
+                </div>
+              )}
+
+              {/* وحدة القياس */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 mb-1.5 block">
+                  وحدة القياس
+                </label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUnitOpen((o) => {
+                        if (!o) { // opening
+                          setIsAddingNewUnit(false);
+                          setNewUnitName("");
+                          setUnitSearch("");
+                        }
+                        return !o;
+                      });
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-gray-200 bg-white text-right text-sm text-gray-800 hover:border-gray-300 transition-all focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500"
+                  >
+                    <span>{unit}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`text-gray-400 transition-transform ${unitOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {unitOpen && (
+                    <div className="absolute z-50 bottom-full mb-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
+                        <Search size={14} className="text-gray-400 shrink-0" />
+                        <input
+                          autoFocus
+                          type="text"
+                          value={unitSearch}
+                          onChange={(e) => setUnitSearch(e.target.value)}
+                          placeholder="ابحث عن وحدة..."
+                          className="flex-1 text-sm outline-none bg-transparent"
+                        />
+                      </div>
+                      <ul className="max-h-48 overflow-y-auto">
+                        {filteredUnitOpts.map((opt) => (
+                          <li key={opt}>
+                            <button
+                              type="button"
+                              onClick={() => pickUnit(opt)}
+                              className={`w-full text-right px-4 py-2 text-sm hover:bg-gray-50 transition-colors flex items-center justify-between ${
+                                unit === opt
+                                  ? "bg-bunyan-50 text-bunyan-700 font-bold"
+                                  : "text-gray-700 font-medium"
+                              }`}
+                            >
+                              {opt}
+                              {unit === opt && (
+                                <Check size={14} className="text-bunyan-600" />
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                        {filteredUnitOpts.length === 0 && !unitSearch.trim() && (
+                          <li className="px-4 py-3 text-xs text-center text-gray-400">
+                            لا توجد وحدات
+                          </li>
+                        )}
+                        {isAddingNewUnit ? (
+                          <li className="p-2 border-t border-gray-100 bg-gray-50">
+                            <div className="flex gap-2">
+                              <input
+                                autoFocus
+                                type="text"
+                                value={newUnitName}
+                                onChange={(e) => setNewUnitName(e.target.value)}
+                                placeholder="اسم الوحدة الجديدة"
+                                className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 bg-white text-right"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && newUnitName.trim()) {
+                                    e.preventDefault();
+                                    pickUnit(newUnitName.trim());
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (newUnitName.trim()) {
+                                    pickUnit(newUnitName.trim());
+                                  }
+                                }}
+                                className="bg-bunyan-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-bunyan-700"
+                              >
+                                إضافة
+                              </button>
+                            </div>
+                          </li>
+                        ) : (
+                          <li className="border-t border-gray-100 p-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setIsAddingNewUnit(true);
+                              }}
+                              className="w-full text-right px-3 py-2 text-sm font-bold text-bunyan-600 hover:bg-bunyan-50 rounded-lg transition-colors flex items-center gap-2"
+                            >
+                              <Plus size={14} />
+                              إضافة وحدة جديدة
+                            </button>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* الباركود */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 mb-1.5 block">
+                  الباركود (اختياري)
+                </label>
+                <input
+                  type="text"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder="امسح الباركود"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none transition-all text-left font-mono"
+                  dir="ltr"
+                />
+              </div>
+
+              {/* الحد الأدنى للتنبيه */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 mb-1.5 flex justify-between">
+                  الحد الأدنى
+                  <span className="text-[10px] text-gray-400 font-normal self-center">تلقائي: 5</span>
+                </label>
+                <input
+                  type="number"
+                  value={minAlert}
+                  onChange={(e) => setMinAlert(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none transition-all text-center font-bold text-sm"
+                />
+              </div>
+            </div>
+
+            {/* إجمالي التكلفة للمنتج البسيط (رسالة الخزانة) */}
+            {category === "simple" && simpleInitCost > 0 && (
+              <div
+                className={`p-3 rounded-xl border mt-2 ${isTreasuryInsufficient ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-bold text-gray-700">
+                    إجمالي التكلفة:
+                  </span>
+                  <span
+                    className={`text-sm font-bold font-currency ${isTreasuryInsufficient ? "text-red-700" : "text-gray-900"}`}
+                  >
+                    {formatCurrency(simpleInitCost)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-500">الرصيد المتاح:</span>
+                  <span
+                    className={`font-bold font-currency ${isTreasuryInsufficient ? "text-red-600" : "text-emerald-600"}`}
+                  >
+                    {formatCurrency(availableTreasury)}
+                  </span>
+                </div>
+                {isTreasuryInsufficient && (
+                  <p className="text-red-600 text-[11px] mt-2 pt-2 border-t border-red-200 font-bold flex items-center gap-1">
+                    <AlertCircle size={12} /> التكلفة {formatCurrency(simpleInitCost)} تتجاوز الرصيد {formatCurrency(availableTreasury)} — يلزم {formatCurrency(simpleInitCost - availableTreasury)} إضافية
+                  </p>
                 )}
               </div>
-            ) : (
+            )}
+          </div>
+
+          {/* 4. المتغيرات */}
+          {category !== "simple" && (
+            <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-4">
+                <span>🎨</span>
+                المتغيرات
+              </h3>
+              
               <div className="space-y-4">
                 {attributes.map((attr, idx) => (
                   <div
@@ -739,13 +951,13 @@ export function AddProductSlideOver({
                             </table>
                           </div>
                         ) : (
-                          /* Two+ attributes: columns = attr1 values, rows = attr2 values */
+                          /* Two+ attributes: columns = attr1 values, rows = cartesian of attr2+ */
                           <div className="overflow-x-auto w-full max-w-full">
                             <table className="w-full text-right">
                               <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
                                   <th className="px-2 py-1.5 text-sm text-gray-500">
-                                    {validAttributes[1]?.name} \ {validAttributes[0]?.name}
+                                    {validAttributes.slice(1).map(a => a.name).join(' / ')} \ {validAttributes[0]?.name}
                                   </th>
                                   {validAttributes[0].values.map((col) => (
                                     <th key={col} className="px-2 py-1.5 text-sm text-gray-700 text-center">
@@ -755,33 +967,46 @@ export function AddProductSlideOver({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100 bg-white">
-                                {validAttributes[1].values.map((rowVal) => (
-                                  <tr key={rowVal} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-2 py-1.5 text-sm font-bold text-gray-900">
-                                      {rowVal}
-                                    </td>
-                                    {validAttributes[0].values.map((colVal) => {
-                                      const sku = generateSKU(productName.slice(0, 5), [colVal, rowVal]);
-                                      return (
-                                        <td key={colVal} className="px-2 py-1.5 text-center">
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            placeholder="0"
-                                            value={quantities[sku] || ""}
-                                            onChange={(e) =>
-                                              setQuantities({
-                                                ...quantities,
-                                                [sku]: e.target.value,
-                                              })
-                                            }
-                                            className="w-16 px-1 py-0 h-7 text-center border border-gray-200 rounded-lg focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none font-bold text-gray-900 transition-all text-sm"
-                                          />
+                                {(() => {
+                                  const rowAttrs = validAttributes.slice(1);
+                                  const rowCombos: string[][] = rowAttrs.reduce<string[][]>(
+                                    (acc, attr) =>
+                                      acc.length === 0
+                                        ? attr.values.map((v) => [v])
+                                        : acc.flatMap((combo) => attr.values.map((v) => [...combo, v])),
+                                    []
+                                  );
+                                  return rowCombos.map((rowCombo) => {
+                                    const rowLabel = rowCombo.join(' / ');
+                                    return (
+                                      <tr key={rowLabel} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-2 py-1.5 text-sm font-bold text-gray-900 whitespace-nowrap">
+                                          {rowLabel}
                                         </td>
-                                      );
-                                    })}
-                                  </tr>
-                                ))}
+                                        {validAttributes[0].values.map((colVal) => {
+                                          const sku = generateSKU(productName.slice(0, 5), [colVal, ...rowCombo]);
+                                          return (
+                                            <td key={colVal} className="px-2 py-1.5 text-center">
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                placeholder="0"
+                                                value={quantities[sku] || ""}
+                                                onChange={(e) =>
+                                                  setQuantities({
+                                                    ...quantities,
+                                                    [sku]: e.target.value,
+                                                  })
+                                                }
+                                                className="w-16 px-1 py-0 h-7 text-center border border-gray-200 rounded-lg focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none font-bold text-gray-900 transition-all text-sm"
+                                              />
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  });
+                                })()}
                               </tbody>
                             </table>
                           </div>
@@ -792,10 +1017,6 @@ export function AddProductSlideOver({
                       <div className={`p-3 rounded-xl border ${
                         isTreasuryInsufficient ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
                       }`}>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-bold text-gray-700">إجمالي الكمية:</span>
-                          <span className="text-sm font-bold text-gray-900">{totalMatrixQty} قطعة</span>
-                        </div>
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-xs font-bold text-gray-700">إجمالي التكلفة:</span>
                           <span className={`text-sm font-bold font-currency ${
@@ -821,153 +1042,8 @@ export function AddProductSlideOver({
                     </div>
                   )}
               </div>
-            )}
-          </div>
-
-          {/* Barcode and Unit */}
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1.5 block">
-                وحدة القياس
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUnitOpen((o) => {
-                      if (!o) { // opening
-                        setIsAddingNewUnit(false);
-                        setNewUnitName("");
-                        setUnitSearch("");
-                      }
-                      return !o;
-                    });
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-gray-200 bg-white text-right text-sm text-gray-800 hover:border-gray-300 transition-all focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500"
-                >
-                  <span>{unit}</span>
-                  <ChevronDown
-                    size={14}
-                    className={`text-gray-400 transition-transform ${unitOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-                {unitOpen && (
-                  <div className="absolute z-50 bottom-full mb-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-                      <Search size={14} className="text-gray-400 shrink-0" />
-                      <input
-                        autoFocus
-                        type="text"
-                        value={unitSearch}
-                        onChange={(e) => setUnitSearch(e.target.value)}
-                        placeholder="ابحث عن وحدة..."
-                        className="flex-1 text-sm outline-none bg-transparent"
-                      />
-                    </div>
-                    <ul className="max-h-48 overflow-y-auto">
-                      {filteredUnitOpts.map((opt) => (
-                        <li key={opt}>
-                          <button
-                            type="button"
-                            onClick={() => pickUnit(opt)}
-                            className={`w-full text-right px-4 py-2 text-sm hover:bg-gray-50 transition-colors flex items-center justify-between ${
-                              unit === opt
-                                ? "bg-bunyan-50 text-bunyan-700 font-bold"
-                                : "text-gray-700 font-medium"
-                            }`}
-                          >
-                            {opt}
-                            {unit === opt && (
-                              <Check size={14} className="text-bunyan-600" />
-                            )}
-                          </button>
-                        </li>
-                      ))}
-                      {filteredUnitOpts.length === 0 && !unitSearch.trim() && (
-                        <li className="px-4 py-3 text-xs text-center text-gray-400">
-                          لا توجد وحدات
-                        </li>
-                      )}
-                      {isAddingNewUnit ? (
-                        <li className="p-2 border-t border-gray-100 bg-gray-50">
-                          <div className="flex gap-2">
-                            <input
-                              autoFocus
-                              type="text"
-                              value={newUnitName}
-                              onChange={(e) => setNewUnitName(e.target.value)}
-                              placeholder="اسم الوحدة الجديدة"
-                              className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 bg-white text-right"
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && newUnitName.trim()) {
-                                  e.preventDefault();
-                                  pickUnit(newUnitName.trim());
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (newUnitName.trim()) {
-                                  pickUnit(newUnitName.trim());
-                                }
-                              }}
-                              className="bg-bunyan-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-bunyan-700"
-                            >
-                              إضافة
-                            </button>
-                          </div>
-                        </li>
-                      ) : (
-                        <li className="border-t border-gray-100 p-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setIsAddingNewUnit(true);
-                            }}
-                            className="w-full text-right px-3 py-2 text-sm font-bold text-bunyan-600 hover:bg-bunyan-50 rounded-lg transition-colors flex items-center gap-2"
-                          >
-                            <Plus size={14} />
-                            إضافة وحدة جديدة
-                          </button>
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-              </div>
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1.5 block">
-                الباركود (اختياري)
-              </label>
-              <input
-                type="text"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder="امسح الباركود"
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none transition-all text-left font-mono"
-                dir="ltr"
-              />
-            </div>
-          </div>
-
-          {/* Alert Threshold */}
-          <div className="pb-4">
-            <label className="text-xs font-bold text-gray-700 mb-1.5 flex justify-between">
-              الحد الأدنى للتنبيه
-              <span className="text-[10px] text-gray-400 font-normal self-center">
-                تلقائي: 5
-              </span>
-            </label>
-            <input
-              type="number"
-              value={minAlert}
-              onChange={(e) => setMinAlert(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/30 outline-none transition-all text-center font-bold text-sm"
-            />
-          </div>
+          )}
         </div>
         {/* end scrollable body */}
 
@@ -1048,6 +1124,90 @@ export function AddProductSlideOver({
                >
                  تأكيد وإضافة
                </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ━━ Modal حاسبة تكلفة الاستيراد ━━ */}
+      {showCalc && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 pointer-events-auto p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden" dir="rtl">
+            <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <span>🧮</span>
+                حاسبة تكلفة الاستيراد
+              </h3>
+              <button onClick={() => setShowCalc(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 mb-1.5 block">قيمة الفاتورة (USD)<span className="text-red-500">*</span></label>
+                  <input type="number" value={calcInvoice} onChange={e => setCalcInvoice(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-1 focus:ring-bunyan-500 outline-none" placeholder="مثال: 1000" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-700 mb-1.5 block">الكمية<span className="text-red-500">*</span></label>
+                  <input type="number" value={calcQty} onChange={e => setCalcQty(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-1 focus:ring-bunyan-500 outline-none" placeholder="مثال: 50" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 mb-1.5 block">سعر الصرف (د.ل)<span className="text-red-500">*</span></label>
+                  <input type="number" value={calcExchange} onChange={e => setCalcExchange(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-1 focus:ring-bunyan-500 outline-none" placeholder="7.13" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-700 mb-1.5 block">فاتورة الشحن (USD)<span className="text-red-500">*</span></label>
+                  <input type="number" value={calcShipping} onChange={e => setCalcShipping(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-1 focus:ring-bunyan-500 outline-none" placeholder="مثال: 150" />
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                <label className="text-xs font-bold text-gray-700 mb-2 block">العمولة الإضافية المحلّية (اختياري)</label>
+                <div className="flex items-center gap-4 mb-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                    <input type="radio" checked={calcCommType === 'fixed'} onChange={() => setCalcCommType('fixed')} className="accent-bunyan-600" />
+                    قيمة ثابتة (د.ل)
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                    <input type="radio" checked={calcCommType === 'percent'} onChange={() => setCalcCommType('percent')} className="accent-bunyan-600" />
+                    نسبة (%)
+                  </label>
+                </div>
+                <input type="number" value={calcCommVal} onChange={e => setCalcCommVal(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:border-bunyan-500 focus:ring-1 focus:ring-bunyan-500 outline-none bg-white" placeholder={calcCommType === 'fixed' ? 'أدخل القيمة بالدينار' : 'أدخل النسبة (مثال: 5)'} />
+              </div>
+
+              {currentCalcResult !== null && (
+                <div className="p-3 bg-bunyan-50 rounded-xl border border-bunyan-100 text-center animate-fade-in">
+                  <p className="text-xs font-bold text-bunyan-700 mb-1">تكلفة القطعة الواحدة مكلّصة:</p>
+                  <p className="text-xl font-black text-bunyan-900 font-currency">{currentCalcResult} د.ل</p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 border-t border-gray-100">
+              <button
+                onClick={() => setShowCalc(false)}
+                className="py-2.5 rounded-xl font-bold bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors text-sm"
+              >
+                إلغاء
+              </button>
+              <button
+                disabled={currentCalcResult === null}
+                onClick={() => {
+                  if (currentCalcResult !== null) {
+                    setCostPrice(String(currentCalcResult));
+                    setShowCalc(false);
+                  }
+                }}
+                className="py-2.5 rounded-xl font-bold bg-bunyan-600 hover:bg-bunyan-700 text-white transition-colors text-sm shadow-sm disabled:opacity-50"
+              >
+                تطبيق السعر
+              </button>
             </div>
           </div>
         </div>

@@ -13,7 +13,7 @@ import { STOCK_STATUS, getStockStatus, getStatusBadgeClasses } from '@/shared/ut
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign } from 'lucide-react';
+import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { AddProductSlideOver } from '@/shared/components/ui';
 
@@ -82,6 +82,189 @@ const SmartVariantBadges = ({ variants }: { variants: any[] | undefined }) => {
   );
 };
 
+// ══════════════════════════════════════════
+// مكوّن عرض المتغيرات الذكي (Popover)
+// ══════════════════════════════════════════
+type AttrConfig = { name: string; values: string[] };
+type VariantItem = { id: string; quantity: number; attributes?: Record<string, string>; size?: string; sku?: string };
+
+const SmartVariantPopover = ({
+  product,
+  onClose,
+}: {
+  product: { name: string; variants?: VariantItem[]; attributeConfig?: AttrConfig[] };
+  onClose: () => void;
+}) => {
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const variants = product.variants || [];
+  const cfg = product.attributeConfig || [];
+
+  // ━━ حساب الـ max لنسبة الشريط ━━
+  const maxQty = Math.max(...variants.map((v) => v.quantity), 1);
+
+  // ━━ إذا لا يوجد متغيرات ━━
+  if (variants.length === 0) return null;
+
+  // ━━ منطق اختيار محاور التجميع ━━
+  let groupAttr: AttrConfig | null = null;
+  let rowAttrsForPopover: AttrConfig[] = [];
+
+  if (cfg.length === 0) {
+    // Fallback: لا يوجد attributeConfig — عرض مسطّح
+  } else if (cfg.length === 1) {
+    // خاصية واحدة فقط — بدون تجميع
+    rowAttrsForPopover = cfg;
+  } else {
+    // اختر الخاصية بأقل عدد قيم كمجموعات
+    const sorted = [...cfg].sort((a, b) => a.values.length - b.values.length);
+    groupAttr = sorted[0];
+    rowAttrsForPopover = sorted.slice(1);
+  }
+
+  // ━━ حساب تركيبات الصفوف ━━
+  const rowCombosForPopover: string[][] =
+    rowAttrsForPopover.length === 0
+      ? [['__all__']]
+      : rowAttrsForPopover.reduce<string[][]>(
+          (acc, attr) =>
+            acc.length === 0
+              ? attr.values.map((v) => [v])
+              : acc.flatMap((combo) => attr.values.map((v) => [...combo, v])),
+          []
+        );
+
+  // ━━ دالة مطابقة الـ variant ━━
+  const matchVariant = (groupVal: string | null, rowCombo: string[]) =>
+    variants.find((v) => {
+      const attrs = v.attributes || {};
+      if (groupAttr && attrs[groupAttr.name] !== groupVal) return false;
+      if (rowCombo[0] === '__all__') return groupAttr ? attrs[groupAttr.name] === groupVal : true;
+      return rowAttrsForPopover.every((ra, i) => attrs[ra.name] === rowCombo[i]);
+    });
+
+  // ━━ الخيارات للتجميع ━━
+  const groupValues = groupAttr ? groupAttr.values : ['__single__'];
+  const useTabMode = groupValues.length > 4;
+  const activeGroup = activeTab ?? groupValues[0];
+
+  // ━━ عرض صف واحد ━━
+  const renderRow = (label: string, qty: number) => {
+    const pct = Math.round((qty / maxQty) * 100);
+    const isOut = qty === 0;
+    const isLow = qty > 0 && qty <= 3;
+    const barColor = isOut ? 'bg-red-400' : isLow ? 'bg-amber-400' : 'bg-bunyan-600';
+    const textColor = isOut ? 'text-red-600' : isLow ? 'text-amber-700' : 'text-gray-900';
+    return (
+      <div key={label} className="flex items-center gap-2 py-1">
+        <span className="text-xs font-bold text-gray-700 w-16 shrink-0 text-right truncate" title={label}>
+          {label}
+        </span>
+        <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className={`text-xs font-bold w-8 text-left shrink-0 ${textColor}`}>
+          {isOut ? 'نفذ' : qty}
+        </span>
+      </div>
+    );
+  };
+
+  // ━━ عرض مجموعة واحدة ━━
+  const renderGroup = (groupVal: string) => {
+    const isAll = groupVal === '__single__';
+    return (
+      <div key={groupVal} className="space-y-0.5">
+        {rowCombosForPopover.map((rowCombo) => {
+          const v = isAll
+            ? variants.find((vv) => {
+                if (rowCombo[0] === '__all__') return true;
+                const attrs = vv.attributes || {};
+                return rowAttrsForPopover.every((ra, i) => attrs[ra.name] === rowCombo[i]);
+              })
+            : matchVariant(groupVal, rowCombo);
+          if (!v) return null;
+          const label = rowCombo[0] === '__all__'
+            ? (isAll ? '' : groupVal)
+            : rowCombo.join(' / ');
+          return renderRow(label || groupVal, v.quantity);
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-72 overflow-hidden animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+        <span className="text-xs font-bold text-gray-900 truncate">{product.name}</span>
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors shrink-0"
+        >
+          <X size={12} />
+        </button>
+      </div>
+
+      {/* Tabs — إذا كانت المجموعات أكثر من 4 */}
+      {useTabMode && groupAttr && (
+        <div className="flex gap-1 p-2 border-b border-gray-100 bg-white overflow-x-auto">
+          {groupValues.map((g) => (
+            <button
+              key={g}
+              onClick={() => setActiveTab(g)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-colors ${
+                activeGroup === g
+                  ? 'bg-bunyan-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Body */}
+      <div className="px-4 py-3 max-h-72 overflow-y-auto">
+        {useTabMode ? (
+          <div>
+            {groupAttr && (
+              <p className="text-[10px] font-bold text-gray-400 mb-2">
+                {rowAttrsForPopover.map(r => r.name).join(' / ')}
+              </p>
+            )}
+            {renderGroup(activeGroup)}
+          </div>
+        ) : groupAttr ? (
+          <div className="flex gap-4">
+            {groupValues.map((g) => (
+              <div key={g} className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-bunyan-700 mb-1.5 text-center border-b border-bunyan-100 pb-1">
+                  {g}
+                </p>
+                {renderGroup(g)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          renderGroup('__single__')
+        )}
+      </div>
+
+      {/* Footer: الإجمالي */}
+      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+        <span className="text-[10px] text-gray-500 font-bold">إجمالي المخزون</span>
+        <span className="text-xs font-bold text-gray-900">
+          {variants.reduce((s, v) => s + v.quantity, 0)} قطعة
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export default function InventoryPage() {
   const { user } = useAuthStore();
   const { showToast } = useToast();
@@ -104,6 +287,7 @@ export default function InventoryPage() {
   const [editProduct, setEditProduct] = useState<typeof myProducts[0] | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<typeof myProducts[0] | null>(null);
   const [insightTarget, setInsightTarget] = useState<typeof myProducts[0] | null>(null);
+  const [variantPopoverProductId, setVariantPopoverProductId] = useState<string | null>(null);
 
   const [addQtyTarget, setAddQtyTarget] = useState<typeof myProducts[0] | null>(null);
   const [addQtyAmount, setAddQtyAmount] = useState('');
@@ -477,7 +661,7 @@ export default function InventoryPage() {
                 const status = getStockStatus(p.quantity, p.minQuantity);
                 
                 return (
-                  <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
+                  <tr key={p.id} className="hover:bg-gray-50/70 transition-colors relative">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
@@ -489,6 +673,7 @@ export default function InventoryPage() {
                           {p.variants && p.variants.length > 0 && (
                             <SmartVariantBadges variants={p.variants} />
                           )}
+                          {/* Eye Popover — يُعرض خارج الجدول في مستوى الصفحة */}
                         </div>
                       </div>
                     </td>
@@ -530,6 +715,19 @@ export default function InventoryPage() {
                             <Trash2 size={16} />
                           </button>
                         )}
+                        {p.variants && p.variants.length > 0 && (
+                          <button
+                            onClick={() => setVariantPopoverProductId(variantPopoverProductId === p.id ? null : p.id)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              variantPopoverProductId === p.id
+                                ? 'bg-bunyan-100 text-bunyan-700'
+                                : 'bg-gray-50 hover:bg-bunyan-50 text-gray-600 hover:text-bunyan-600'
+                            }`}
+                            title="عرض المتغيرات"
+                          >
+                            <Eye size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -549,6 +747,25 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+
+      {/* عرض Popover المتغيرات في مستوى الصفحة */}
+      {variantPopoverProductId && (() => {
+        const popProduct = myProducts.find(p => p.id === variantPopoverProductId);
+        if (!popProduct || !popProduct.variants?.length) return null;
+        return (
+          <div className="fixed inset-0 z-[200]" onClick={() => setVariantPopoverProductId(null)}>
+            <div
+              className="absolute bottom-8 left-8"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <SmartVariantPopover
+                product={popProduct}
+                onClose={() => setVariantPopoverProductId(null)}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* إضافة / تعديل منتج (المكون الجديد) */}
       <AddProductSlideOver 
@@ -706,42 +923,139 @@ export default function InventoryPage() {
               {addQtyTarget.name}
             </p>
 
-            <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-4">
-              <table className="w-full text-sm text-right">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-4 py-2 text-gray-700">المتغير</th>
-                    <th className="px-4 py-2 text-gray-700 text-center">الكمية الحالية</th>
-                    <th className="px-4 py-2 text-gray-700 text-center">الإضافة (+)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {addQtyTarget?.variants?.map((v) => (
-                    <tr key={v.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-2 font-bold text-gray-900">
-                        {v.size} {v.color ? ` - ${v.color}` : ''}
-                      </td>
-                      <td className="px-4 py-2 text-center font-bold text-gray-600">
-                        {v.quantity}
-                      </td>
-                      <td className="px-4 py-2 flex justify-center">
-                        <input 
-                          type="number" 
-                          min="0"
-                          placeholder="0"
-                          value={variantQtyAmounts[v.id] || ''}
-                          onChange={(e) => setVariantQtyAmounts({
-                            ...variantQtyAmounts, 
-                            [v.id]: e.target.value
-                          })}
-                          className="w-16 px-1.5 py-1 text-center border border-gray-300 rounded-lg focus:border-bunyan-500 outline-none font-bold text-bunyan-700 focus:bg-bunyan-50 transition-all text-sm"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {/* Pivot Table للمتغيرات */}
+            {(() => {
+              const cfg = addQtyTarget?.attributeConfig;
+              const variants = addQtyTarget?.variants || [];
+
+              // ━━ Pivot Mode: عند وجود attributeConfig ━━
+              if (cfg && cfg.length > 0) {
+                const colAttr = cfg[0];       // الخاصية الأولى → أعمدة
+                const rowAttrs = cfg.slice(1); // الخصائص المتبقية → صفوف (يمكن أن تكون 1-3)
+
+                const colVals = colAttr.values;
+
+                // توليد تركيبات الصفوف من جميع الخصائص المتبقية (Cartesian product)
+                const rowCombos: string[][] = rowAttrs.length === 0
+                  ? [['__single__']]
+                  : rowAttrs.reduce<string[][]>(
+                      (acc, attr) =>
+                        acc.length === 0
+                          ? attr.values.map((v) => [v])
+                          : acc.flatMap((combo) => attr.values.map((v) => [...combo, v])),
+                      []
+                    );
+
+                // دالة إيجاد الـ variant المطابق بمقارنة كل الخصائص
+                const findVariant = (colVal: string, rowCombo: string[]) =>
+                  variants.find((v) => {
+                    const attrs = v.attributes || {};
+                    if (attrs[colAttr.name] !== colVal) return false;
+                    return rowAttrs.every((ra, i) => attrs[ra.name] === rowCombo[i]);
+                  });
+
+                return (
+                  <div className="border border-gray-200 rounded-xl overflow-x-auto shadow-sm mb-4">
+                    <table className="w-full text-sm text-center">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          {/* خلية الزاوية — تظهر فقط إذا يوجد خصائص للصفوف */}
+                          {rowAttrs.length > 0 && (
+                            <th className="px-3 py-2 text-right text-gray-500 font-bold text-xs border-l border-gray-200">
+                              {rowAttrs.map(a => a.name).join(' / ')} \ {colAttr.name}
+                            </th>
+                          )}
+                          {colVals.map((col) => (
+                            <th key={col} className="px-3 py-2 text-gray-700 font-bold text-xs">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {rowCombos.map((rowCombo) => {
+                          const rowLabel = rowCombo[0] === '__single__' ? '' : rowCombo.join(' / ');
+                          return (
+                            <tr key={rowCombo.join('-')} className="hover:bg-gray-50 transition-colors">
+                              {/* عمود الصف — يُظهر label مركّب عند وجود خصائص */}
+                              {rowAttrs.length > 0 && (
+                                <td className="px-3 py-2 font-bold text-gray-700 text-right text-xs border-l border-gray-200 bg-gray-50 whitespace-nowrap">
+                                  {rowLabel}
+                                </td>
+                              )}
+                              {colVals.map((col) => {
+                                const v = findVariant(col, rowCombo);
+                                if (!v) return (
+                                  <td key={col} className="px-2 py-2 text-gray-300 text-xs">—</td>
+                                );
+                                return (
+                                  <td key={col} className="px-2 py-2">
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-[10px] text-gray-400 font-mono">{v.quantity}</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="0"
+                                        value={variantQtyAmounts[v.id] || ''}
+                                        onChange={(e) => setVariantQtyAmounts({
+                                          ...variantQtyAmounts,
+                                          [v.id]: e.target.value
+                                        })}
+                                        className="w-14 px-1 py-1 text-center border border-gray-300 rounded-lg focus:border-bunyan-500 outline-none font-bold text-bunyan-700 focus:bg-bunyan-50 transition-all text-sm"
+                                      />
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              }
+
+              // ━━ Fallback: الطريقة التقليدية (size/color) ━━
+              return (
+                <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-4">
+                  <table className="w-full text-sm text-right">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-2 text-gray-700">المتغير</th>
+                        <th className="px-4 py-2 text-gray-700 text-center">الكمية الحالية</th>
+                        <th className="px-4 py-2 text-gray-700 text-center">الإضافة (+)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {variants.map((v) => (
+                        <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-2 font-bold text-gray-900">
+                            {v.size} {v.color ? ` - ${v.color}` : ''}
+                          </td>
+                          <td className="px-4 py-2 text-center font-bold text-gray-600">
+                            {v.quantity}
+                          </td>
+                          <td className="px-4 py-2 flex justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              value={variantQtyAmounts[v.id] || ''}
+                              onChange={(e) => setVariantQtyAmounts({
+                                ...variantQtyAmounts,
+                                [v.id]: e.target.value
+                              })}
+                              className="w-16 px-1.5 py-1 text-center border border-gray-300 rounded-lg focus:border-bunyan-500 outline-none font-bold text-bunyan-700 focus:bg-bunyan-50 transition-all text-sm"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
             {/* زر تغيير سعر الشراء للدفعة - WAC */}
             <div className="mb-4">
