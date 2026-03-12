@@ -528,7 +528,7 @@ export function AddProductSlideOver({
             </div>
           </div>
 
-            <div>
+            <div className="space-y-2">
               <label className="text-xs font-bold text-gray-700 mb-1.5 block">
                 اسم المنتج <span className="text-red-500">*</span>
               </label>
