@@ -21,6 +21,19 @@ type Filter = 'all' | 'available' | 'low' | 'out';
 const SIZES_CLOTHING = ['S', 'M', 'L', 'XL', 'XXL'];
 const SIZES_SHOES = ['38', '39', '40', '41', '42', '43', '44', '45'];
 
+const getCategoryLabel = (cat: string) => {
+  const map: Record<string, string> = {
+    'simple': 'منتج عادي',
+    'clothing': 'ملابس',
+    'shoes': 'أحذية',
+    'custom': 'مخصص',
+    'عادي': 'منتج عادي',
+    'ملابس': 'ملابس',
+    'أحذية': 'أحذية',
+  };
+  return map[cat] || cat;
+};
+
 const SmartVariantBadges = ({ variants }: { variants: any[] | undefined }) => {
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   if (!variants || variants.length === 0) return null;
@@ -287,7 +300,11 @@ export default function InventoryPage() {
   const [editProduct, setEditProduct] = useState<typeof myProducts[0] | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<typeof myProducts[0] | null>(null);
   const [insightTarget, setInsightTarget] = useState<typeof myProducts[0] | null>(null);
+  const [viewProduct, setViewProduct] = useState<typeof myProducts[0] | null>(null);
   const [variantPopoverProductId, setVariantPopoverProductId] = useState<string | null>(null);
+
+  const [priceFrom, setPriceFrom] = useState('');
+  const [priceTo, setPriceTo] = useState('');
 
   const [addQtyTarget, setAddQtyTarget] = useState<typeof myProducts[0] | null>(null);
   const [addQtyAmount, setAddQtyAmount] = useState('');
@@ -312,15 +329,23 @@ export default function InventoryPage() {
       }
     }
 
-    const isLow = p.quantity > 0 && p.quantity <= p.minQuantity;
+    // فلتر نطاق السعر
+    const pMin = Number(priceFrom);
+    const pMax = Number(priceTo);
+    if (pMin > 0 && p.sellingPrice < pMin) return false;
+    if (pMax > 0 && p.sellingPrice > pMax) return false;
+
     const isOut = p.quantity <= 0;
+    const isLow = p.quantity > 0 && p.quantity <= p.minQuantity;
+    const isAvailable = p.quantity > p.minQuantity;
     
-    if (filter === 'available' && (isLow || isOut)) return false;
+    if (filter === 'available' && !isAvailable) return false;
     if (filter === 'low' && !isLow) return false;
     if (filter === 'out' && !isOut) return false;
     return true;
   });
 
+  const availableCount = myProducts.filter(p => p.quantity > p.minQuantity).length;
   const lowStockCount = myProducts.filter(p => p.quantity > 0 && p.quantity <= p.minQuantity).length;
   const outOfStockCount = myProducts.filter(p => p.quantity <= 0).length;
 
@@ -490,8 +515,8 @@ export default function InventoryPage() {
   };
 
   const filters: { key: Filter; label: string; count?: number; colorClass?: string; dotColor?: string }[] = [
-    { key: 'all', label: `الكل (${myProducts.length})` },
-    { key: 'available', label: 'متاح', colorClass: 'text-emerald-700 bg-emerald-50 border-emerald-200', dotColor: 'bg-emerald-500' },
+    { key: 'all', label: 'الكل', count: myProducts.length },
+    { key: 'available', label: 'متاح', count: availableCount, colorClass: 'text-emerald-700 bg-emerald-50 border-emerald-200', dotColor: 'bg-emerald-500' },
     { key: 'low', label: 'ينفد', count: lowStockCount, colorClass: 'text-amber-700 bg-amber-50 border-amber-200', dotColor: 'bg-amber-400' },
     { key: 'out', label: 'نفد', count: outOfStockCount, colorClass: 'text-red-700 bg-red-50 border-red-200', dotColor: 'bg-red-500' },
   ];
@@ -639,6 +664,37 @@ export default function InventoryPage() {
               {cat}
             </button>
           ))}
+
+          {/* فلتر نطاق السعر */}
+          <div className="flex items-center gap-2 mr-auto pl-2">
+            <div className="relative">
+              <input 
+                type="number" 
+                placeholder="سعر من"
+                value={priceFrom}
+                onChange={(e) => setPriceFrom(e.target.value)}
+                className="w-24 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500"
+              />
+            </div>
+            <div className="relative">
+              <input 
+                type="number" 
+                placeholder="سعر إلى"
+                value={priceTo}
+                onChange={(e) => setPriceTo(e.target.value)}
+                className="w-24 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500"
+              />
+            </div>
+            {(priceFrom || priceTo) && (
+              <button 
+                onClick={() => { setPriceFrom(''); setPriceTo(''); }}
+                className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-500 transition-colors"
+                title="مسح السعر"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -677,11 +733,21 @@ export default function InventoryPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-gray-700">{p.category}</td>
+                    <td className="px-6 py-4 text-gray-700">{getCategoryLabel(p.category)}</td>
                     <td className="px-6 py-4 font-bold text-gray-900">
                       <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-2">
-                          <span>{formatNumber(p.quantity)} <span className="text-xs font-normal text-gray-500">{p.unit}</span></span>
+                          <span>
+                            {formatNumber(
+                              p.productType !== "simple" && p.variants
+                                ? p.variants.reduce((sum, v) => sum + v.quantity, 0)
+                                : p.quantity
+                            )}{" "}
+                            <span className="text-xs font-normal text-gray-500">{p.unit}</span>
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-medium block">
+                            حد أدنى: {p.minQuantity}
+                          </span>
                           {canAddEdit && (
                             <button onClick={() => { 
                                 setAddQtyTarget(p); 
@@ -707,6 +773,13 @@ export default function InventoryPage() {
                             <Pencil size={16} />
                           </button>
                         )}
+                        <button
+                          onClick={() => setViewProduct(p)}
+                          className="p-2 rounded-lg bg-gray-50 hover:bg-bunyan-50 text-gray-600 hover:text-bunyan-600 transition-colors"
+                          title="عرض التفاصيل"
+                        >
+                          <Eye size={16} />
+                        </button>
                         <button onClick={() => setInsightTarget(p)} className="p-2 rounded-lg bg-gray-50 hover:bg-bunyan-50 text-gray-600 hover:text-bunyan-600 transition-colors" title="التحليلات">
                           <BarChart2 size={16} />
                         </button>
@@ -725,7 +798,7 @@ export default function InventoryPage() {
                             }`}
                             title="عرض المتغيرات"
                           >
-                            <Eye size={16} />
+                            <span className="text-[10px] font-bold">V</span>
                           </button>
                         )}
                       </div>
@@ -751,7 +824,7 @@ export default function InventoryPage() {
       {/* عرض Popover المتغيرات في مستوى الصفحة */}
       {variantPopoverProductId && (() => {
         const popProduct = myProducts.find(p => p.id === variantPopoverProductId);
-        if (!popProduct || !popProduct.variants?.length) return null;
+        if (!popProduct || !popProduct.variants || popProduct.variants.length === 0) return null;
         return (
           <div className="fixed inset-0 z-[200]" onClick={() => setVariantPopoverProductId(null)}>
             <div
@@ -759,7 +832,11 @@ export default function InventoryPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <SmartVariantPopover
-                product={popProduct}
+                product={{
+                  name: popProduct.name,
+                  variants: popProduct.variants as any,
+                  attributeConfig: popProduct.attributeConfig as any
+                }}
                 onClose={() => setVariantPopoverProductId(null)}
               />
             </div>
@@ -843,14 +920,14 @@ export default function InventoryPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder={String(addQtyTarget.costPrice || 0)}
+                    placeholder={String(addQtyTarget?.costPrice || 0)}
                     value={newPurchasePrice}
                     onChange={(e) => setNewPurchasePrice(e.target.value)}
                     className="w-full pr-12 pl-3 py-2 border border-bunyan-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 text-center font-bold text-gray-800 text-sm"
                     dir="ltr"
                     autoFocus
                   />
-                  <p className="text-[10px] text-gray-400 mt-1 text-center">السعر الحالي: {formatCurrency(addQtyTarget.costPrice || 0)} — سيُحسب WAC تلقائياً</p>
+                  <p className="text-[10px] text-gray-400 mt-1 text-center">السعر الحالي: {formatCurrency(addQtyTarget?.costPrice || 0)} — سيُحسب WAC تلقائياً</p>
                 </div>
               )}
             </div>
@@ -1071,14 +1148,14 @@ export default function InventoryPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder={String(addQtyTarget.costPrice || 0)}
+                    placeholder={String(addQtyTarget?.costPrice || 0)}
                     value={newPurchasePrice}
                     onChange={(e) => setNewPurchasePrice(e.target.value)}
                     className="w-full pr-12 pl-3 py-2 border border-bunyan-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 text-center font-bold text-gray-800 text-sm"
                     dir="ltr"
                     autoFocus
                   />
-                  <p className="text-[10px] text-gray-400 mt-1 text-center">السعر الحالي: {formatCurrency(addQtyTarget.costPrice || 0)} — سيُحسب متوسط التكلفة المرجح (WAC) تلقائياً</p>
+                  <p className="text-[10px] text-gray-400 mt-1 text-center">السعر الحالي: {formatCurrency(addQtyTarget?.costPrice || 0)} — سيُحسب متوسط التكلفة المرجح (WAC) تلقائياً</p>
                 </div>
               )}
             </div>
@@ -1136,11 +1213,12 @@ export default function InventoryPage() {
         title="أداء وتحليلات المنتج"
       >
         {insightTarget && (() => {
+          const insightSalesQtyLocal = insightSalesQty;
           const isLowStock = insightTarget.quantity < insightTarget.minQuantity;
-          const isTrending = insightSalesQty > 0 && insightSalesQty >= Math.max(10, insightTarget.quantity * 0.3);
+          const isTrending = insightSalesQtyLocal > 0 && insightSalesQtyLocal >= Math.max(10, insightTarget.quantity * 0.3);
           // أعلى متغير من حيث الكمية
-          const topVariantId = insightTarget.variants?.length
-            ? [...insightTarget.variants].sort((a, b) => b.quantity - a.quantity)[0]?.id
+          const topVariantId = (insightTarget.variants || []).length
+            ? [...(insightTarget.variants || [])].sort((a, b) => b.quantity - a.quantity)[0]?.id
             : null;
 
           return (
@@ -1273,7 +1351,7 @@ export default function InventoryPage() {
                     <div className="flex-1 h-px bg-gray-100" />
                   </div>
                   <div className="space-y-2.5">
-                    {[...insightTarget.variants]
+                    {[...(insightTarget.variants || [])]
                       .sort((a, b) => b.quantity - a.quantity)
                       .map((v) => {
                         const totalQty = insightTarget.quantity;
@@ -1320,6 +1398,102 @@ export default function InventoryPage() {
             </div>
           );
         })()}
+      </SlideOver>
+
+      {/* تفاصيل المنتج (Detail View) */}
+      <SlideOver
+        isOpen={!!viewProduct}
+        onClose={() => setViewProduct(null)}
+        title="تفاصيل المنتج"
+      >
+        {viewProduct && (
+          <div className="p-6 space-y-6">
+            <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+              <div className="w-16 h-16 rounded-2xl bg-bunyan-100 flex items-center justify-center shrink-0">
+                <Package size={32} className="text-bunyan-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-gray-900">{viewProduct.name}</h3>
+                <p className="text-sm font-mono text-gray-500">كود المنتج: BN{viewProduct.itemCode}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                <p className="text-xs text-gray-400 font-bold mb-1">الفئة</p>
+                <p className="text-base font-bold text-gray-900">{getCategoryLabel(viewProduct.category)}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                <p className="text-xs text-gray-400 font-bold mb-1">وحدة القياس</p>
+                <p className="text-base font-bold text-gray-900">{viewProduct.unit}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+              <div>
+                <p className="text-xs text-gray-400 font-bold mb-3 flex items-center gap-1">
+                  <DollarSign size={14} /> التسعير
+                </p>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-1">سعر التكلفة</span>
+                    {canViewCost ? (
+                      <span className="text-lg font-black text-gray-900 font-currency">{formatCurrency(viewProduct.costPrice)}</span>
+                    ) : (
+                      <span className="text-gray-300 font-black">---</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-1">سعر البيع</span>
+                    <span className="text-lg font-black text-bunyan-600 font-currency">{formatCurrency(viewProduct.sellingPrice)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <hr className="border-gray-50" />
+
+              <div>
+                <p className="text-xs text-gray-400 font-bold mb-3 flex items-center gap-1">
+                  <Package size={14} /> المخزون
+                </p>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-1">الكمية الحالية</span>
+                    <span className="text-lg font-black text-gray-900">{formatNumber(viewProduct.quantity)} {viewProduct.unit}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-1">حد الإنذار الأدنى</span>
+                    <span className="text-lg font-black text-amber-600">{viewProduct.minQuantity} {viewProduct.unit}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {viewProduct.barcode && (
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                <p className="text-xs text-gray-400 font-bold mb-2">الباركود</p>
+                <p className="text-base font-mono font-bold text-gray-900 tracking-wider">
+                  {viewProduct.barcode}
+                </p>
+              </div>
+            )}
+
+            <div className="pt-4 flex gap-3">
+              <button 
+                onClick={() => { setViewProduct(null); openEdit(viewProduct); }}
+                className="flex-1 py-3 bg-bunyan-50 text-bunyan-600 font-bold rounded-xl hover:bg-bunyan-100 transition-colors flex items-center justify-center gap-2"
+              >
+                <Pencil size={18} /> تعديل البيانات
+              </button>
+              <button 
+                onClick={() => setViewProduct(null)}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        )}
       </SlideOver>
     </div>
   );

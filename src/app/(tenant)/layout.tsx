@@ -18,12 +18,20 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   const { user, isAuthenticated, setUser, logout, isBrowsingAsTenant } = useAuthStore();
   const { tenants } = useDataStore();
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Hydrate: تحميل المستخدم والتأكد من توافق Zustand مع الكوكيز
   useEffect(() => {
     setHydrated(true);
+    
+    // تحميل حالة الشريط الجانبي من localStorage
+    const savedSidebarOpen = localStorage.getItem('sidebar-open');
+    if (savedSidebarOpen !== null) {
+      setSidebarOpen(savedSidebarOpen === 'true');
+    }
+
     const checkAuth = setTimeout(() => {
       if (!useAuthStore.getState().isAuthenticated) {
         // مسح الكوكي لمنع Infinite Redirect Loop مع الـ Middleware
@@ -33,6 +41,13 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
     }, 100);
     return () => clearTimeout(checkAuth);
   }, [router]);
+
+  // حفظ حالة الشريط الجانبي عند التغيير
+  useEffect(() => {
+    if (hydrated) {
+      localStorage.setItem('sidebar-open', String(sidebarOpen));
+    }
+  }, [sidebarOpen, hydrated]);
 
   // Kill-Switch check (تطرد المستخدم فوراً إذا تم إيقافه أو إيقاف المتجر)
   useEffect(() => {
@@ -109,14 +124,24 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f2f7]">
+    <div className="min-h-screen bg-[#f0f2f7] flex flex-col">
       <SuperAdminBanner />
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="md:mr-[260px]">
-        <Header onToggleSidebar={() => setSidebarOpen(true)} />
-        <main className="p-6 max-w-[1400px] mx-auto">
-          {children}
-        </main>
+      <div className="flex flex-1 relative overflow-hidden">
+        <Sidebar 
+          isOpen={sidebarOpen} 
+          isMobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)} 
+        />
+        <div className="flex-1 flex flex-col min-w-0 transition-all duration-300">
+          <Header 
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onToggleMobileMenu={() => setMobileMenuOpen(true)}
+          />
+          <main className="p-6 max-w-[1400px] mx-auto w-full">
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   );

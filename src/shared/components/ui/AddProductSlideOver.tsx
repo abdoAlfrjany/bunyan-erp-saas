@@ -165,6 +165,10 @@ export function AddProductSlideOver({
   };
 
   const addAttribute = () => {
+    if (attributes.some(attr => attr.name === "")) {
+      showToast("يوجد خاصية بهذا الاسم مسبقاً، غيّر الاسم أولاً", "error");
+      return;
+    }
     setAttributes([...attributes, { name: "", values: [] }]);
   };
 
@@ -203,11 +207,12 @@ export function AddProductSlideOver({
   }, [validAttributes]);
 
   const totalMatrixQty = useMemo(() => {
-    return Object.values(quantities).reduce(
-      (acc, q) => acc + (Number(q) || 0),
-      0,
-    );
-  }, [quantities]);
+    if (category === "simple") return 0;
+    return matrixCombinations.reduce((acc, combo) => {
+      const sku = generateSKU(productName.slice(0, 5), combo);
+      return acc + (Number(quantities[sku]) || 0);
+    }, 0);
+  }, [matrixCombinations, quantities, productName, category]);
 
   const profitMargin = useMemo(() => {
     const cp = Number(costPrice);
@@ -300,7 +305,7 @@ export function AddProductSlideOver({
       const names = attributes.map((a) => a.name.trim()).filter((n) => n !== "");
       const hasDuplicates = names.some((name, index) => names.indexOf(name) !== index);
       if (hasDuplicates) {
-        showToast("لا يمكن إضافة خاصيتين بنفس الاسم", "error");
+        showToast("يوجد خاصيتان بنفس الاسم، يرجى تعديلهما", "error");
         return;
       }
     }
@@ -850,20 +855,23 @@ export function AddProductSlideOver({
               </h3>
               
               <div className="space-y-4">
-                {attributes.map((attr, idx) => (
-                  <div key={idx} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-4">
-                    <div className="flex items-center justify-between border-b border-dashed border-gray-300 pb-2">
-                      <input
-                        type="text"
-                        value={attr.name}
-                        onChange={(e) => updateAttributeName(idx, e.target.value)}
-                        placeholder="اسم الخاصية (مثال: اللون)"
-                        className="bg-transparent font-bold text-gray-800 text-right outline-none focus:border-bunyan-500 w-full"
-                      />
-                      <button type="button" onClick={() => removeAttribute(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-1 shrink-0">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                {attributes.map((attr, idx) => {
+                  const isDuplicate = attr.name.trim() !== "" && attributes.some((a, i) => i !== idx && a.name.trim() === attr.name.trim());
+                  return (
+                    <div key={idx} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-4">
+                      <div className={`flex items-center justify-between border-b border-dashed ${isDuplicate ? 'border-red-400' : 'border-gray-300'} pb-2`}>
+                        <input
+                          type="text"
+                          value={attr.name}
+                          onChange={(e) => updateAttributeName(idx, e.target.value)}
+                          placeholder="اسم الخاصية (مثال: اللون)"
+                          className="bg-transparent font-bold text-gray-800 text-right outline-none focus:border-bunyan-500 w-full"
+                        />
+                        <button type="button" onClick={() => removeAttribute(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-1 shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      {isDuplicate && <p className="text-[10px] text-red-500 font-bold mt-1">هذا الاسم مستخدم مسبقاً</p>}
                     <div className="flex flex-wrap gap-2">
                       {attr.values.map((val, vIdx) => (
                         <span key={vIdx} className="bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm">
@@ -899,7 +907,8 @@ export function AddProductSlideOver({
                       </button>
                     </div>
                   </div>
-                ))}
+                );
+              })}
 
                 <button
                   type="button"
@@ -1011,7 +1020,6 @@ export function AddProductSlideOver({
         </div>
       </div>
 
-      {/* Confirmation Dialog */}
       {showConfirm && !editProduct && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 pointer-events-auto">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-fade-in text-right">
@@ -1054,8 +1062,6 @@ export function AddProductSlideOver({
           </div>
         </div>
       )}
-
-      {/* Calculator modal removed - now inline */}
     </>
   );
 }

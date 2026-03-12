@@ -48,9 +48,13 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'التحليلات',              icon: BarChart3,       href: '/analytics',  roles: ['owner'] },
 ];
 
-interface SidebarProps { isOpen: boolean; onClose: () => void; }
+interface SidebarProps { 
+  isOpen: boolean;        // Desktop state
+  isMobileOpen: boolean;  // Mobile state
+  onCloseMobile: () => void; 
+}
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar({ isOpen, isMobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const { orders, products, debts } = useDataStore();
@@ -79,18 +83,26 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={onClose} />}
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-[60] lg:hidden animate-fade-in" 
+          onClick={onCloseMobile} 
+        />
+      )}
 
       <aside className={cn(
-        'fixed top-0 right-0 h-full w-[260px] z-50 flex flex-col transition-transform duration-300 ease-in-out',
-        'md:translate-x-0',
-        isOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0',
+        'fixed lg:sticky top-0 right-0 h-full z-[70] flex flex-col transition-all duration-300 ease-in-out overflow-hidden shadow-2xl lg:shadow-none',
+        // Desktop behavior (Computer)
+        isOpen ? 'lg:w-64 lg:opacity-100 lg:translate-x-0' : 'lg:w-0 lg:opacity-0 lg:translate-x-full',
+        // Mobile behavior (Drawer)
+        isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0',
       )} style={{ background: 'linear-gradient(180deg, #2a1045 0%, #3a1a5a 100%)' }}>
 
         {/* رأس — لوقو Bunyan */}
-        <div className="flex items-center justify-between p-5 border-b border-white/10">
+        <div className="flex items-center justify-between p-5 border-b border-white/10 shrink-0 min-w-[260px]">
           <BunyanLogo size="sm" variant="light" showText={true} />
-          <button onClick={onClose} className="md:hidden text-white/40 hover:text-white transition-colors">
+          <button onClick={onCloseMobile} className="lg:hidden text-white/40 hover:text-white transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -141,18 +153,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                     {content}
                   </button>
                 ) : (
-                  <Link href={item.href} className={itemClass}
-                    onClick={() => { if (window.innerWidth < 768) onClose(); }}>
-                    {content}
-                  </Link>
-                )}
+                    <Link href={item.href} className={itemClass}
+                      onClick={() => { if (window.innerWidth < 1024) onCloseMobile(); }}>
+                      {content}
+                    </Link>
+                  )}
 
-                {/* قائمة فرعية */}
-                {item.children && expanded && (
-                  <div className="mr-9 mt-1 space-y-0.5 border-r border-white/10 pr-3">
-                    {item.children.map((child) => (
-                      <Link key={child.href} href={child.href}
-                        onClick={() => { if (window.innerWidth < 768) onClose(); }}
+                  {/* قائمة فرعية */}
+                  {item.children && expanded && (
+                    <div className="mr-9 mt-1 space-y-0.5 border-r border-white/10 pr-3">
+                      {item.children.map((child) => (
+                        <Link key={child.href} href={child.href}
+                          onClick={() => { if (window.innerWidth < 1024) onCloseMobile(); }}
                         className={cn(
                           'block px-3 py-2 rounded-lg text-xs transition-all',
                           pathname === child.href

@@ -12,7 +12,7 @@ import { GlobalSearch } from '@/shared/components/ui/GlobalSearch';
 import {
   Bell, Menu, Settings, LogOut, User, ChevronDown,
   ShoppingCart, Package, AlertCircle, CheckCircle, Info,
-  Eye, Shield,
+  Eye, Shield, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import { formatRelativeTime } from '@/shared/utils/format';
 
@@ -40,9 +40,13 @@ const NOTIF_ICON = {
   success: <CheckCircle size={16} className="text-emerald-500" />,
 };
 
-interface HeaderProps { onToggleSidebar: () => void; }
+interface HeaderProps { 
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void; 
+  onToggleMobileMenu: () => void;
+}
 
-export function Header({ onToggleSidebar }: HeaderProps) {
+export function Header({ sidebarOpen, onToggleSidebar, onToggleMobileMenu }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, setViewingAs } = useAuthStore();
@@ -91,8 +95,18 @@ export function Header({ onToggleSidebar }: HeaderProps) {
     <header className="h-16 bg-[#3a1a5a] border-b border-white/10 flex items-center justify-between px-6 sticky top-0 z-30 shadow-lg">
       {/* الجانب الأيمن — زر القائمة + مسار التنقل */}
       <div className="flex items-center gap-4">
-        <button onClick={onToggleSidebar} className="md:hidden text-white/60 hover:text-white transition-colors">
+        {/* Toggle Mobile Drawer */}
+        <button onClick={onToggleMobileMenu} className="lg:hidden text-white/60 hover:text-white transition-colors">
           <Menu size={22} />
+        </button>
+
+        {/* Toggle Desktop Sidebar */}
+        <button 
+          onClick={onToggleSidebar} 
+          className="hidden lg:flex text-white/60 hover:text-white transition-colors w-9 h-9 items-center justify-center bg-white/5 rounded-xl hover:bg-white/10"
+          title={sidebarOpen ? "إخفاء القائمة" : "إظهار القائمة"}
+        >
+          {sidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
         </button>
 
         <nav className="flex items-center gap-1.5 text-sm">
