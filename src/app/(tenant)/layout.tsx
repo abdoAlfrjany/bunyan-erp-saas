@@ -12,6 +12,7 @@ import { useDataStore } from '@/core/db/store';
 import { Sidebar } from '@/shared/components/layout/Sidebar';
 import { Header } from '@/shared/components/layout/Header';
 import { SuperAdminBanner } from '@/shared/components/layout/SuperAdminBanner';
+import { cn } from '@/shared/utils/cn';
 import { Loader2 } from 'lucide-react';
 
 export default function TenantLayout({ children }: { children: React.ReactNode }) {
@@ -126,13 +127,16 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen bg-[#f0f2f7] flex flex-col">
       <SuperAdminBanner />
-      <div className="flex flex-1 relative overflow-hidden">
+      <div className="flex flex-1 relative min-h-screen lg:min-h-0 overflow-hidden">
         <Sidebar 
           isOpen={sidebarOpen} 
           isMobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)} 
         />
-        <div className="flex-1 flex flex-col min-w-0 transition-all duration-300">
+        <div className={cn(
+          "flex-1 flex flex-col min-w-0 transition-all duration-300 min-h-screen lg:min-h-0",
+          sidebarOpen ? "lg:mr-64" : "lg:mr-0"
+        )}>
           <Header 
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}

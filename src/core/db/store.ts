@@ -197,8 +197,18 @@ export const useDataStore = create<DataState>()(
         });
       }
 
+      const newProduct = {
+        ...p,
+        createdAt: new Date().toISOString(),
+        stockHistory: [{
+          id: `stock-${Date.now()}`,
+          quantity: totalQty,
+          date: new Date().toISOString()
+        }]
+      };
+
       return {
-        products: [p, ...s.products],
+        products: [newProduct, ...s.products],
         treasury: newTreasury,
         transactions: newTransactions
       };

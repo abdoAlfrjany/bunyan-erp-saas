@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAuthStore } from '@/core/auth/store';
 import { useDataStore } from '@/core/db/store';
 import { formatCurrency, formatNumber } from '@/shared/utils/format';
@@ -13,9 +13,10 @@ import { STOCK_STATUS, getStockStatus, getStatusBadgeClasses } from '@/shared/ut
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye } from 'lucide-react';
+import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye, SlidersHorizontal, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { AddProductSlideOver } from '@/shared/components/ui';
+import { cn } from '@/shared/utils/cn';
 
 type Filter = 'all' | 'available' | 'low' | 'out';
 const SIZES_CLOTHING = ['S', 'M', 'L', 'XL', 'XXL'];
@@ -294,7 +295,6 @@ export default function InventoryPage() {
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [activeFilter, setActiveFilter] = useState('all');
   
   const [slideOpen, setSlideOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<typeof myProducts[0] | null>(null);
@@ -303,8 +303,14 @@ export default function InventoryPage() {
   const [viewProduct, setViewProduct] = useState<typeof myProducts[0] | null>(null);
   const [variantPopoverProductId, setVariantPopoverProductId] = useState<string | null>(null);
 
+  // Advanced Filter States
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   const [priceFrom, setPriceFrom] = useState('');
   const [priceTo, setPriceTo] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const [addQtyTarget, setAddQtyTarget] = useState<typeof myProducts[0] | null>(null);
   const [addQtyAmount, setAddQtyAmount] = useState('');
@@ -313,37 +319,62 @@ export default function InventoryPage() {
   const [newPurchasePrice, setNewPurchasePrice] = useState('');
   const [showPriceField, setShowPriceField] = useState(false);
 
-  // الفلترة
-  const filtered = myProducts.filter((p) => {
-    if (search && !p.name.includes(search) && !String(p.itemCode).includes(search)) return false;
-    
-    if (activeFilter !== 'all') {
-      if (activeFilter === 'simple') {
-        if (p.productType !== 'simple') return false;
-      } else if (activeFilter === 'clothing') {
-        if (p.productType !== 'clothing') return false;
-      } else if (activeFilter === 'shoes') {
-        if (p.productType !== 'shoes') return false;
-      } else {
-        if (p.category !== activeFilter) return false;
+  // الفلترة والترتيب (useMemo)
+  const filtered = useMemo(() => {
+    let result = myProducts.filter((p) => {
+      // 1. بحث نصي
+      if (search && !p.name.includes(search) && !String(p.itemCode).includes(search)) return false;
+      
+      // 2. نوع المنتج / الفئة
+      if (categoryFilter !== 'all') {
+        if (categoryFilter === 'simple') {
+          if (p.productType !== 'simple') return false;
+        } else if (categoryFilter === 'clothing') {
+          if (p.productType !== 'clothing') return false;
+        } else if (categoryFilter === 'shoes') {
+          if (p.productType !== 'shoes') return false;
+        } else {
+          if (p.category !== categoryFilter) return false;
+        }
       }
-    }
 
-    // فلتر نطاق السعر
-    const pMin = Number(priceFrom);
-    const pMax = Number(priceTo);
-    if (pMin > 0 && p.sellingPrice < pMin) return false;
-    if (pMax > 0 && p.sellingPrice > pMax) return false;
+      // 3. نطاق السعر
+      const pMin = Number(priceFrom);
+      const pMax = Number(priceTo);
+      if (pMin > 0 && p.sellingPrice < pMin) return false;
+      if (pMax > 0 && p.sellingPrice > pMax) return false;
 
-    const isOut = p.quantity <= 0;
-    const isLow = p.quantity > 0 && p.quantity <= p.minQuantity;
-    const isAvailable = p.quantity > p.minQuantity;
-    
-    if (filter === 'available' && !isAvailable) return false;
-    if (filter === 'low' && !isLow) return false;
-    if (filter === 'out' && !isOut) return false;
-    return true;
-  });
+      // 4. نطاق التاريخ (createdAt)
+      if (dateFrom && p.createdAt && p.createdAt < dateFrom) return false;
+      if (dateTo && p.createdAt && p.createdAt > dateTo + 'T23:59:59') return false;
+
+      // 5. شريحة الحالة (متاح / ينفد / نفد)
+      const isOut = p.quantity <= 0;
+      const isLow = p.quantity > 0 && p.quantity <= p.minQuantity;
+      const isAvailable = p.quantity > p.minQuantity;
+      
+      if (filter === 'available' && !isAvailable) return false;
+      if (filter === 'low' && !isLow) return false;
+      if (filter === 'out' && !isOut) return false;
+      
+      return true;
+    });
+
+    // 6. الترتيب
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'newest': return (b.createdAt || '').localeCompare(a.createdAt || '');
+        case 'oldest': return (a.createdAt || '').localeCompare(b.createdAt || '');
+        case 'price-high': return b.sellingPrice - a.sellingPrice;
+        case 'price-low': return a.sellingPrice - b.sellingPrice;
+        case 'qty-high': return b.quantity - a.quantity;
+        case 'qty-low': return a.quantity - b.quantity;
+        default: return 0;
+      }
+    });
+
+    return result;
+  }, [myProducts, search, categoryFilter, priceFrom, priceTo, dateFrom, dateTo, filter, sortBy]);
 
   const availableCount = myProducts.filter(p => p.quantity > p.minQuantity).length;
   const lowStockCount = myProducts.filter(p => p.quantity > 0 && p.quantity <= p.minQuantity).length;
@@ -454,6 +485,14 @@ export default function InventoryPage() {
       updateProduct(addQtyTarget.id, {
         quantity: oldQty + amount,
         costPrice: Math.round(newCostPrice),
+        stockHistory: [
+          ...(addQtyTarget.stockHistory || []),
+          {
+            id: `stock-${Date.now()}`,
+            quantity: amount,
+            date: new Date().toISOString()
+          }
+        ]
       });
       
       if (oldQty + amount <= addQtyTarget.minQuantity) {
@@ -492,7 +531,15 @@ export default function InventoryPage() {
       updateProduct(addQtyTarget.id, { 
         quantity: oldQty + totalAdded,
         costPrice: Math.round(newCostPrice),
-        variants: newVariants
+        variants: newVariants,
+        stockHistory: [
+          ...(addQtyTarget.stockHistory || []),
+          {
+            id: `stock-${Date.now()}`,
+            quantity: totalAdded,
+            date: new Date().toISOString()
+          }
+        ]
       });
       const totalAddedCostVariant = totalAdded * purchasePrice;
       showToast(`تمت إضافة ${totalAdded} قطعة لـ "${addQtyTarget.name}" ✅ — خُصم ${totalAddedCostVariant} د.ل — WAC الجديد: ${Math.round(newCostPrice)} د.ل`, 'success');
@@ -583,119 +630,153 @@ export default function InventoryPage() {
               className="w-full pr-10 pl-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all" 
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {filters.map((f) => (
-              <button 
-                key={f.key} 
-                onClick={() => setFilter(f.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                  filter === f.key 
-                    ? 'bg-bunyan-600 text-white border-bunyan-600 shadow-sm' 
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {f.dotColor && <span className={`w-2 h-2 rounded-full ${f.dotColor} inline-block ml-1`}/>}
-                {f.label}
-                {f.count !== undefined && f.count > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                    filter === f.key ? 'bg-white/20 text-white' : f.colorClass
-                  }`}>
-                    ({f.count})
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border transition-all",
+                showAdvancedFilter || categoryFilter !== 'all' || sortBy !== 'newest' || priceFrom || priceTo || dateFrom || dateTo
+                  ? "bg-bunyan-50 border-bunyan-200 text-bunyan-600 shadow-sm"
+                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+              )}
+            >
+              <SlidersHorizontal size={18} />
+              فلتر متقدم
+            </button>
           </div>
         </div>
 
-        {/* فلاتر الفئات الديناميكية والثابتة */}
-        <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
-          <button 
-            onClick={() => setActiveFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              activeFilter === 'all' 
-                ? 'bg-gray-800 text-white border-gray-800 shadow-sm' 
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            كل أنواع المنتجات
-          </button>
-          <button 
-            onClick={() => setActiveFilter('simple')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              activeFilter === 'simple' 
-                ? 'bg-gray-800 text-white border-gray-800 shadow-sm' 
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            منتج عادي
-          </button>
-          <button 
-            onClick={() => setActiveFilter('clothing')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              activeFilter === 'clothing' 
-                ? 'bg-gray-800 text-white border-gray-800 shadow-sm' 
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            ملابس
-          </button>
-          <button 
-            onClick={() => setActiveFilter('shoes')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              activeFilter === 'shoes' 
-                ? 'bg-gray-800 text-white border-gray-800 shadow-sm' 
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            أحذية
-          </button>
-          
-          {customCategories.map((cat) => (
+        {/* شرائح الحالة */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {filters.map((f) => (
             <button 
-              key={cat}
-              onClick={() => setActiveFilter(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                activeFilter === cat 
-                  ? 'bg-gray-800 text-white border-gray-800 shadow-sm' 
+              key={f.key} 
+              onClick={() => setFilter(f.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                filter === f.key 
+                  ? 'bg-bunyan-600 text-white border-bunyan-600 shadow-sm' 
                   : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
             >
-              {cat}
+              {f.dotColor && <span className={`w-2 h-2 rounded-full ${f.dotColor} inline-block ml-1`}/>}
+              {f.label}
+              {f.count !== undefined && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                  filter === f.key ? 'bg-white/20 text-white' : f.colorClass
+                }`}>
+                  ({f.count})
+                </span>
+              )}
             </button>
           ))}
-
-          {/* فلتر نطاق السعر */}
-          <div className="flex items-center gap-2 mr-auto pl-2">
-            <div className="relative">
-              <input 
-                type="number" 
-                placeholder="سعر من"
-                value={priceFrom}
-                onChange={(e) => setPriceFrom(e.target.value)}
-                className="w-24 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500"
-              />
-            </div>
-            <div className="relative">
-              <input 
-                type="number" 
-                placeholder="سعر إلى"
-                value={priceTo}
-                onChange={(e) => setPriceTo(e.target.value)}
-                className="w-24 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500"
-              />
-            </div>
-            {(priceFrom || priceTo) && (
-              <button 
-                onClick={() => { setPriceFrom(''); setPriceTo(''); }}
-                className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-500 transition-colors"
-                title="مسح السعر"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
         </div>
+
+        {/* الفلتر المتقدم */}
+        {showAdvancedFilter && (
+          <div className="mt-2 pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* التاريخ */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pr-1">تاريخ الإضافة</label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Calendar size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      type="date" 
+                      value={dateFrom} 
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-full pr-8 pl-2 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500" 
+                    />
+                  </div>
+                  <span className="text-gray-300">←</span>
+                  <div className="relative flex-1">
+                    <Calendar size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      type="date" 
+                      value={dateTo} 
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full pr-8 pl-2 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* النوع */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pr-1">نوع المنتج / الفئة</label>
+                <select 
+                  value={categoryFilter} 
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500 bg-white"
+                >
+                  <option value="all">كل الأنواع</option>
+                  <option value="simple">منتج عادي</option>
+                  <option value="clothing">ملابس</option>
+                  <option value="shoes">أحذية</option>
+                  {customCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* الترتيب */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pr-1">ترتيب حسب</label>
+                <select 
+                  value={sortBy} 
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500 bg-white"
+                >
+                  <option value="newest">الأحدث إضافة</option>
+                  <option value="oldest">الأقدم</option>
+                  <option value="price-high">الأعلى سعر</option>
+                  <option value="price-low">الأقل سعر</option>
+                  <option value="qty-high">الأعلى كمية</option>
+                  <option value="qty-low">الأقل كمية</option>
+                </select>
+              </div>
+
+              {/* نطاق السعر */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider pr-1">نطاق السعر (بيع)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    placeholder="من" 
+                    value={priceFrom} 
+                    onChange={(e) => setPriceFrom(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500" 
+                  />
+                  <input 
+                    type="number" 
+                    placeholder="إلى" 
+                    value={priceTo} 
+                    onChange={(e) => setPriceTo(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-bunyan-500" 
+                  />
+                </div>
+              </div>
+
+              {/* إجراءات الفلتر */}
+              <div className="lg:col-span-2 flex items-end justify-end gap-2">
+                <button 
+                  onClick={() => {
+                    setCategoryFilter('all');
+                    setSortBy('newest');
+                    setPriceFrom('');
+                    setPriceTo('');
+                    setDateFrom('');
+                    setDateTo('');
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                >
+                  <X size={14} />
+                  مسح الفلاتر المتقدمة
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* جدول المنتجات */}
@@ -744,9 +825,6 @@ export default function InventoryPage() {
                                 : p.quantity
                             )}{" "}
                             <span className="text-xs font-normal text-gray-500">{p.unit}</span>
-                          </span>
-                          <span className="text-[10px] text-gray-400 font-medium block">
-                            حد أدنى: {p.minQuantity}
                           </span>
                           {canAddEdit && (
                             <button onClick={() => { 
@@ -833,9 +911,9 @@ export default function InventoryPage() {
             >
               <SmartVariantPopover
                 product={{
-                  name: popProduct.name,
-                  variants: popProduct.variants as any,
-                  attributeConfig: popProduct.attributeConfig as any
+                  name: popProduct?.name || '',
+                  variants: (popProduct?.variants || []) as any,
+                  attributeConfig: (popProduct?.attributeConfig || []) as any
                 }}
                 onClose={() => setVariantPopoverProductId(null)}
               />
@@ -874,7 +952,7 @@ export default function InventoryPage() {
             </div>
             
             <p className="text-sm font-bold text-[#0a1628] bg-[#f0f2f7] rounded-lg px-3 py-2 mb-4 mt-3">
-              {addQtyTarget.name}
+              {addQtyTarget?.name}
             </p>
 
             <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-4">
@@ -1362,7 +1440,7 @@ export default function InventoryPage() {
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-bold text-gray-900 text-sm flex items-center gap-1">
                                 {isTop && <span className="text-yellow-400 text-base">⭐</span>}
-                                {v.size}{v.color ? ` — ${v.color}` : ''}
+                                {(v as any).size}{(v as any).color ? ` — ${(v as any).color}` : ''}
                               </span>
                               <span className="text-xs font-bold text-gray-500">{v.quantity} وحدة · {percentage}%</span>
                             </div>
@@ -1477,6 +1555,52 @@ export default function InventoryPage() {
                 </p>
               </div>
             )}
+
+            {/* سجل المخزون */}
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400 font-bold flex items-center gap-1">
+                  <TrendingUp size={14} /> سجل المخزون
+                </p>
+                <span className="text-[10px] text-gray-400 font-medium">
+                  تاريخ الإضافة: {viewProduct.createdAt ? new Date(viewProduct.createdAt).toLocaleDateString('en-GB') : '---'}
+                </span>
+              </div>
+
+              {viewProduct.stockHistory && viewProduct.stockHistory.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="p-3 bg-bunyan-50 rounded-xl border border-bunyan-100">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-bunyan-600 font-bold">آخر إضافة</span>
+                      <span className="text-bunyan-700 font-black">
+                        +{viewProduct.stockHistory[viewProduct.stockHistory.length - 1].quantity} {viewProduct.unit}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    <table className="w-full text-xs text-right text-gray-500">
+                      <thead className="bg-gray-50 sticky top-0 border-b border-gray-100">
+                        <tr>
+                          <th className="py-2 pr-2">التاريخ</th>
+                          <th className="py-2 pl-2 text-left">الكمية</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {[...viewProduct.stockHistory].reverse().map((entry) => (
+                          <tr key={entry.id} className="hover:bg-gray-50/50">
+                            <td className="py-2 pr-2 font-mono">{new Date(entry.date).toLocaleDateString('en-GB')}</td>
+                            <td className="py-2 pl-2 text-left font-bold text-gray-900">+{entry.quantity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-center text-gray-400 py-2">لا يوجد سجل إضافات متاح</p>
+              )}
+            </div>
 
             <div className="pt-4 flex gap-3">
               <button 

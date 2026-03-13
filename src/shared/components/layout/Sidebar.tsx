@@ -92,7 +92,7 @@ export function Sidebar({ isOpen, isMobileOpen, onCloseMobile }: SidebarProps) {
       )}
 
       <aside className={cn(
-        'fixed lg:sticky top-0 right-0 h-full z-[70] flex flex-col transition-all duration-300 ease-in-out overflow-hidden shadow-2xl lg:shadow-none',
+        'fixed top-0 right-0 h-screen z-[70] flex flex-col transition-all duration-300 ease-in-out overflow-hidden shadow-2xl lg:shadow-none',
         // Desktop behavior (Computer)
         isOpen ? 'lg:w-64 lg:opacity-100 lg:translate-x-0' : 'lg:w-0 lg:opacity-0 lg:translate-x-full',
         // Mobile behavior (Drawer)
@@ -182,7 +182,7 @@ export function Sidebar({ isOpen, isMobileOpen, onCloseMobile }: SidebarProps) {
         </nav>
 
         {/* الإعدادات + تسجيل خروج */}
-        <div className="border-t border-white/10 px-3 py-3 space-y-1">
+        <div className="mt-auto border-t border-white/10 px-3 py-3 space-y-1">
           {showSettings && (
             <Link href="/settings"
               className={cn(

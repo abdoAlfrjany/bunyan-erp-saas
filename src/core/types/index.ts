@@ -61,6 +61,15 @@ export interface Product {
   variants?: ProductVariant[];  // للملابس والأصناف ذات المتغيرات
   customAttributes?: { key: string; value: string }[];  // حقول حرة (Metadata)
   attributeConfig?: { name: string; values: string[] }[]; // Configuration for matrix generation
+  createdAt?: string; // ISO date string
+  stockHistory?: StockEntry[];
+}
+
+export interface StockEntry {
+  id: string;
+  quantity: number; // الكمية المضافة
+  date: string; // ISO date string
+  note?: string; // ملاحظة اختيارية
 }
 
 export interface OrderItem {
