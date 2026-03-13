@@ -82,6 +82,14 @@ export interface Order {
   notes?: string;
   items: OrderItem[]; createdAt: string;
   createdBy?: string;
+  courier_raw_status?: string;
+  is_online_payable?: boolean;
+  commission_by?: 'customer' | 'market';
+  extra_size_by?: 'customer' | 'market';
+  prepaid_amount?: number;
+  partial_delivery?: boolean;
+  vanex_package_code?: string;
+  vanex_package_id?: number;
 }
 
 export interface CourierCompany {
@@ -92,6 +100,16 @@ export interface CourierCompany {
   pricingZones: { zone: string; fee: number }[];
   requiredFields: { key: string; label: string; type: string; required: boolean }[];
   totalShipments: number; totalDelivered: number; totalReturned: number; pendingAmount: number;
+  apiProvider?: 'vanex' | 'mock' | 'none';
+  isApiConnected?: boolean;
+  connectionStatus?: 'connected' | 'disconnected' | 'error' | 'pending';
+  apiCredentials?: {
+    email?: string;
+    passwordHash?: string;
+    merchantCode?: string;
+    token?: string;
+    tokenExpiresAt?: string;
+  };
 }
 
 export interface Shipment {
@@ -197,4 +215,65 @@ export interface AuditLog {
   tenantId: string;
   action: 'impersonate' | string;
   timestamp: string;
+}
+
+// ══════════════════════════════════════════
+// 🚚 Delivery Provider — Adapter Pattern
+// ══════════════════════════════════════════
+
+export interface VanexCity {
+  id: number;
+  name: string;
+  nameEn: string;
+  code: string;
+  regionId: number;
+  active: boolean;
+}
+
+export interface ICreateShipmentPayload {
+  receiverName: string;
+  receiverPhone: string;
+  receiverPhoneB?: string;
+  cityId: number;
+  address: string;
+  price: number;
+  description: string;
+  qty: number;
+  notes?: string;
+  stickerNotes?: string;
+  commissionBy: 'customer' | 'market';
+  paidBy?: 'customer' | 'market';
+  extraSizeBy: 'customer' | 'market';
+  paymentMethod: 'cash' | 'online';
+  partialDelivery?: boolean;
+  products?: Array<{ name: string; price: number; qty: number }>;
+  storeReferenceId?: string;
+  type?: 1 | 2 | 3 | 4;
+}
+
+export interface ICreateShipmentResult {
+  success: boolean;
+  trackingCode?: string;
+  internalId?: string | number;
+  rawStatus?: string;
+  estimatedTotal?: number;
+  error?: string;
+}
+
+export interface IShipmentStatusResult {
+  rawStatus: string;
+  bunyanStatus: Order['status'];
+  lastUpdate?: string;
+}
+
+export interface IDeliveryProvider {
+  readonly providerName: string;
+  authenticate(credentials: { email: string; password: string }): Promise<{ success: boolean; token?: string; error?: string }>;
+  validateToken(token: string): Promise<boolean>;
+  getCities(): Promise<VanexCity[]>;
+  calculateDeliveryPrice(fromRegion: number, toCityId: number): Promise<{ total: number; deliveryTime: string } | null>;
+  createShipment(payload: ICreateShipmentPayload, token: string): Promise<ICreateShipmentResult>;
+  getShipmentStatus(trackingCode: string): Promise<IShipmentStatusResult>;
+  cancelShipment(id: number, token: string): Promise<{ success: boolean; error?: string }>;
+  recallShipment(id: number, token: string): Promise<{ success: boolean; error?: string }>;
 }

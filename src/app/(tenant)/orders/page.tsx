@@ -58,6 +58,7 @@ export default function OrdersPage() {
   // الفلاتر
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [courierFilter, setCourierFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -70,7 +71,11 @@ export default function OrdersPage() {
   const [newOrder, setNewOrder] = useState({
     customerName: '', customerPhone: '', customerAddress: '', customerCity: '',
     deliveryType: 'courier_company' as 'internal' | 'courier_company' | 'pickup',
-    courierId: '', notes: '', discount: 0, priceIncludesDelivery: false
+    courierId: '', notes: '', discount: 0, priceIncludesDelivery: false,
+    commissionBy: 'customer' as 'customer' | 'market',
+    paymentMethod: 'cash' as 'cash' | 'online',
+    isPrepaid: false,
+    prepaidAmount: 0,
   });
   const [orderItems, setOrderItems] = useState<{ productId: string; quantity: number; variantSize?: string }[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -103,8 +108,16 @@ export default function OrdersPage() {
       result = result.filter(o => o.createdAt <= dateTo);
     }
 
+    if (courierFilter !== 'all') {
+      if (courierFilter === 'internal') {
+        result = result.filter(o => o.deliveryType !== 'courier_company');
+      } else {
+        result = result.filter(o => o.courierCompanyId === courierFilter);
+      }
+    }
+
     return result;
-  }, [myOrders, statusFilter, search, dateFrom, dateTo]);
+  }, [myOrders, statusFilter, search, dateFrom, dateTo, courierFilter]);
 
   // ═══ إدارة عناصر الطلبية ═══
   const addItem = () => setOrderItems([...orderItems, { productId: '', quantity: 1, variantSize: '' }]);
@@ -204,6 +217,9 @@ export default function OrdersPage() {
       source: 'direct',
       notes: newOrder.notes || undefined, 
       createdAt: new Date().toISOString().split('T')[0],
+      commission_by: newOrder.commissionBy,
+      is_online_payable: newOrder.paymentMethod === 'online',
+      prepaid_amount: newOrder.isPrepaid ? Math.round(newOrder.prepaidAmount) : 0,
       items: validItems.map((item, idx) => {
         const p = myProducts.find((pr) => pr.id === item.productId) as Product;
         return {
@@ -221,7 +237,7 @@ export default function OrdersPage() {
 
     addOrder(order); // هذا سيقوم بخصم المخزون تلقائياً بسبب المنطق في store.ts
     setSlideOpen(false);
-    setNewOrder({ customerName: '', customerPhone: '', customerAddress: '', customerCity: '', deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false });
+    setNewOrder({ customerName: '', customerPhone: '', customerAddress: '', customerCity: '', deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0 });
     setOrderItems([]);
     showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
   };
@@ -287,7 +303,7 @@ export default function OrdersPage() {
           </div>
           <button onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-bold transition-all ${
-              showFilters || dateFrom || dateTo || statusFilter !== 'all' 
+              showFilters || dateFrom || dateTo || statusFilter !== 'all' || courierFilter !== 'all'
                 ? 'border-bunyan-500 text-bunyan-600 bg-bunyan-50' 
                 : 'border-gray-200 text-gray-600 hover:bg-gray-50'
             }`}>
@@ -328,8 +344,22 @@ export default function OrdersPage() {
               <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
             </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">شركة التوصيل</label>
+              <select
+                value={courierFilter}
+                onChange={e => setCourierFilter(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+              >
+                <option value="all">كل الشركات</option>
+                <option value="internal">توصيل داخلي / استلام</option>
+                {getForTenant(couriers, tid).filter(c => c.isActive).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-end">
-              <button onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSearch(''); }}
+              <button onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSearch(''); setCourierFilter('all'); }}
                 className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-red-600 transition-colors w-full text-right">
                 مسح الفلاتر
               </button>
@@ -347,6 +377,7 @@ export default function OrdersPage() {
                 <th className="px-6 py-4">الطلبية</th>
                 <th className="px-6 py-4">الزبون و المدينة</th>
                 <th className="px-6 py-4">الحالة</th>
+                <th className="px-4 py-4">التوصيل</th>
                 <th className="px-6 py-4">الإجمالي</th>
                 <th className="px-6 py-4">التاريخ</th>
                 <th className="px-6 py-4 text-center">تحديث الحالة</th>
@@ -374,6 +405,29 @@ export default function OrdersPage() {
                         </span>
                       ) : (
                         <span className="text-gray-500">{o.status}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {o.deliveryType === 'courier_company' ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-gray-700 font-medium text-xs">
+                            {myCouriers.find(c => c.id === o.courierCompanyId)?.name ?? '—'}
+                          </span>
+                          {o.vanex_package_code && (
+                            <span className="inline-block bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded font-mono">
+                              {o.vanex_package_code}
+                            </span>
+                          )}
+                          {o.courier_raw_status && (
+                            <span className="inline-block bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded">
+                              {o.courier_raw_status}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs">
+                          {o.deliveryType === 'pickup' ? 'استلام من المحل' : 'توصيل داخلي'}
+                        </span>
                       )}
                     </td>
                     <td className="px-6 py-4">
@@ -571,9 +625,14 @@ export default function OrdersPage() {
                     <select value={newOrder.courierId} onChange={(e) => setNewOrder({ ...newOrder, courierId: e.target.value, customerCity: '' })}
                       className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500">
                       <option value="">اختر الشركة...</option>
-                      {myCouriers.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name} — أساسي: {formatCurrency(c.defaultDeliveryFee)}</option>
-                      ))}
+                      {myCouriers
+                        .filter(c => c.isActive)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} — أساسي: {formatCurrency(c.defaultDeliveryFee)}{c.isApiConnected ? ' 🟢' : ''}
+                          </option>
+                        ))
+                      }
                     </select>
                   </div>
                 )}
@@ -609,6 +668,105 @@ export default function OrdersPage() {
                 </div>
               </div>
             </div>
+
+            {/* ج٢. خيارات الدفع المتقدمة — تظهر فقط عند courier_company */}
+            {newOrder.deliveryType === 'courier_company' && (
+              <div className="rounded-xl border border-bunyan-100 bg-bunyan-50/30 p-4 space-y-4">
+                <h4 className="text-sm font-semibold text-bunyan-700 flex items-center gap-2">
+                  💳 خيارات الدفع والتحصيل
+                </h4>
+
+                {/* سيناريو 1: من يدفع رسوم التوصيل */}
+                <div>
+                  <label className="text-xs text-gray-600 font-medium mb-1 block">
+                    رسوم التوصيل على حساب:
+                  </label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'customer', label: 'الزبون' },
+                      { value: 'market',   label: 'المتجر (توصيل مجاني)' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setNewOrder(p => ({ ...p, commissionBy: opt.value as 'customer' | 'market' }))}
+                        className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
+                          newOrder.commissionBy === opt.value
+                            ? 'bg-bunyan-600 text-white border-bunyan-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-bunyan-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* سيناريو 2: طريقة الدفع */}
+                <div>
+                  <label className="text-xs text-gray-600 font-medium mb-1 block">
+                    طريقة التحصيل من الزبون:
+                  </label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'cash',   label: '💵 كاش عند الاستلام' },
+                      { value: 'online', label: '💳 إلكتروني عبر المندوب' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setNewOrder(p => ({ ...p, paymentMethod: opt.value as 'cash' | 'online' }))}
+                        className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
+                          newOrder.paymentMethod === opt.value
+                            ? 'bg-bunyan-600 text-white border-bunyan-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-bunyan-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {newOrder.paymentMethod === 'online' && (
+                    <p className="text-[11px] text-amber-600 mt-1 bg-amber-50 px-2 py-1 rounded">
+                      ⚠️ تُطبق عمولة 2% على المبلغ المحصّل إلكترونياً وتُخصم في التسويات
+                    </p>
+                  )}
+                </div>
+
+                {/* سيناريو 3: دفع مسبق من الزبون */}
+                <div>
+                  <label className="text-xs text-gray-600 font-medium mb-2 block">
+                    هل دفع الزبون مبلغاً مسبقاً؟
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="prepaidCheck"
+                      checked={newOrder.isPrepaid}
+                      onChange={e => setNewOrder(p => ({ ...p, isPrepaid: e.target.checked, prepaidAmount: e.target.checked ? p.prepaidAmount : 0 }))}
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="prepaidCheck" className="text-xs text-gray-600">
+                      نعم — دفع مسبقاً (الحوالة)
+                    </label>
+                  </div>
+                  {newOrder.isPrepaid && (
+                    <div className="mt-2">
+                      <input
+                        type="number"
+                        placeholder="المبلغ المدفوع مسبقاً بالدينار"
+                        value={newOrder.prepaidAmount || ''}
+                        onChange={e => setNewOrder(p => ({ ...p, prepaidAmount: Number(e.target.value) }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bunyan-500"
+                      />
+                      <p className="text-[11px] text-emerald-600 mt-1 bg-emerald-50 px-2 py-1 rounded">
+                        ✅ سيُرسل للمندوب بقيمة {formatCurrency(Math.max(0, orderCalculations.total - (newOrder.prepaidAmount || 0)))} فقط للتحصيل
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* د. الملخص المالي */}
             <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-5 border border-gray-200 shadow-sm">

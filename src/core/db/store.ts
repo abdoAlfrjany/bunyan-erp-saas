@@ -53,6 +53,7 @@ interface DataState {
   // ═══ Orders ═══
   addOrder: (o: Order) => { success: boolean; error?: string };
   updateOrderStatus: (id: string, status: Order['status'], paymentStatus?: Order['paymentStatus']) => void;
+  patchOrder: (id: string, data: Partial<Order>) => void;
 
   // ═══ Couriers ═══
   addCourier: (c: CourierCompany) => void;
@@ -611,6 +612,10 @@ export const useDataStore = create<DataState>()(
       };
     });
   },
+
+  patchOrder: (id, data) => set((s) => ({
+    orders: s.orders.map((o) => o.id === id ? { ...o, ...data } : o),
+  })),
 
   // ═══ Couriers ═══
   addCourier: (c) => set((s) => ({ couriers: [c, ...s.couriers] })),

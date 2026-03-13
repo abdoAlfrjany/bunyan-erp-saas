@@ -137,6 +137,16 @@ interface Order {
   shipmentTracking?: string;
   createdBy: string; // إجباري — يجب تعبئته عند إنشاء الطلبية
   createdAt: string;
+
+  // ══ حقول شركات التوصيل الخارجية ══
+  courier_raw_status?: string;      // حالة الشركة التفصيلية — للعرض فقط لا تؤثر على الخزينة
+  is_online_payable?: boolean;      // دفع إلكتروني عبر المندوب (عمولة 2% في التسويات)
+  commission_by?: 'customer' | 'market'; // من يدفع رسوم التوصيل
+  extra_size_by?: 'customer' | 'market'; // من يدفع رسوم الحجم الزائد
+  prepaid_amount?: number;          // مبلغ دفعه الزبون مسبقاً (حوالة)
+  partial_delivery?: boolean;       // تسليم جزئي مفعّل
+  vanex_package_code?: string;      // كود الشحنة في VanEx مثال: VNX123456
+  vanex_package_id?: number;        // ID الداخلي في VanEx
 }
 ```
 
@@ -175,8 +185,32 @@ interface CourierCompany {
   pendingAmount: number; // ديون عالقة بحوزة الشركة قيد التحصيل
 
   isActive: boolean;
+
+  // ══ حقول ربط الـ API ══
+  apiProvider?: 'vanex' | 'mock' | 'none';
+  isApiConnected?: boolean;
+  connectionStatus?: 'connected' | 'disconnected' | 'error' | 'pending';
+  apiCredentials?: {
+    email?: string;
+    passwordHash?: string;   // btoa(password) مؤقتاً
+    merchantCode?: string;
+    token?: string;
+    tokenExpiresAt?: string;
+  };
 }
 ```
+
+### `IDeliveryProvider` (واجهة محوّلات التوصيل)
+
+الملف: src/core/delivery/IDeliveryProvider.ts
+
+الشركات المدعومة حالياً:
+- MockShippingAdapter (للتطوير والاختبار)
+- VanexAdapter (VanEx API v1 — Production: https://app.vanex.ly/api/v1)
+
+للإضافة شركة جديدة: أنشئ src/core/delivery/[Name]Adapter.ts 
+يُطبّق IDeliveryProvider ويستدعيه getDeliveryAdapter() في index.ts
+
 
 ---
 
