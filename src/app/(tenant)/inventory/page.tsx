@@ -13,7 +13,7 @@ import { STOCK_STATUS, getStockStatus, getStatusBadgeClasses } from '@/shared/ut
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye, SlidersHorizontal, Calendar } from 'lucide-react';
+import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye, SlidersHorizontal, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { AddProductSlideOver } from '@/shared/components/ui';
 import { cn } from '@/shared/utils/cn';
@@ -876,7 +876,11 @@ export default function InventoryPage() {
                             }`}
                             title="عرض المتغيرات"
                           >
-                            <span className="text-[10px] font-bold">V</span>
+                            {variantPopoverProductId === p.id ? (
+                              <ChevronUp size={16} />
+                            ) : (
+                              <ChevronDown size={16} />
+                            )}
                           </button>
                         )}
                       </div>

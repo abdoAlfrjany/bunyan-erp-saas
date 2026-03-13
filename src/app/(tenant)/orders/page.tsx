@@ -321,12 +321,12 @@ export default function OrdersPage() {
             <div>
               <label className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1"><Calendar size={12}/> من تاريخ</label>
               <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
+                className="appearance-none bg-white w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
             </div>
             <div>
               <label className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1"><Calendar size={12}/> إلى تاريخ</label>
               <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
+                className="appearance-none bg-white w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
             </div>
             <div className="flex items-end">
               <button onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSearch(''); }}

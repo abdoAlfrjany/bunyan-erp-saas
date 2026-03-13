@@ -390,18 +390,17 @@ export function AddProductSlideOver({
     }
   };
 
-  if (!isOpen) return null;
 
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[100] bg-black/50" onClick={onClose} />
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/50" onClick={onClose} />
+      )}
 
-      {/* Modal Wrapper */}
-      <div className="fixed inset-0 z-[101] flex items-start justify-center overflow-y-auto py-10 pointer-events-none">
-        
-        {/* Modal Card */}
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-auto mt-16 mb-16 flex flex-col pointer-events-auto">
+      {/* Side Panel Wrapper */}
+      <div className={`fixed top-0 right-0 h-full z-[101] w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-y-auto transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="relative h-full flex flex-col pointer-events-auto">
           {/* Header */}
           <div className="flex items-center px-6 py-4 border-b border-gray-100">
             <button
