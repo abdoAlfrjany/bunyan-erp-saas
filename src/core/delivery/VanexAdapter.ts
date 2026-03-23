@@ -16,15 +16,25 @@ import type {
 const BASE_URL = process.env.NEXT_PUBLIC_VANEX_URL || 'https://app.vanex.ly/api/v1';
 
 export const VANEX_TO_BUNYAN_STATUS: Record<string, Order['status']> = {
-  store_canceled:   'cancelled',
-  pending:          'pending',
-  shipped:          'with_courier',
-  on_track:         'with_courier',
-  enable_delivery:  'with_courier',
-  delivered:        'delivered',
-  returned:         'return_confirmed',
-  complete:         'delivered',
-  cancelled:        'cancelled',
+  store_new:           'pending',         // قيد الإجراء
+  pending:             'pending',         // (Legacy fallback)
+  ship_received:       'ready_to_ship',   // قيد التجهيز / جاهزة للشحن
+  ship_preperation:    'with_courier',    // إنتظار الشحن
+  ship_ongoing:        'with_courier',    // قيد الشحن
+  ship_pending:        'with_courier',    // قيد الإنتظار
+  shipped:             'with_courier',    // (Legacy fallback)
+  on_track:            'with_courier',    // (Legacy fallback)
+  enable_delivery:     'with_courier',    // (Legacy fallback)
+  pending_office_sett: 'delivered',       // قيد التسوية المالية (توصيل ناجح)
+  pending_store_sett:  'delivered',       // تحت تسوية الشركة (توصيل ناجح)
+  completed:           'delivered',       // مكتملة
+  delivered:           'delivered',       // (Legacy fallback)
+  complete:            'delivered',       // (Legacy fallback)
+  ship_del_return:     'pending_return',  // قيد الاسترداد (تنبيه بأنها راجعة)
+  returned:            'pending_return',  // (Legacy fallback)
+  store_return:        'return_confirmed',// شحنة مستردة وتم استلامها فعلياً (تُسترد للمخزون)
+  store_canceled:      'cancelled',       // مُلغاة
+  cancelled:           'cancelled',       // (Legacy fallback)
 };
 
 export class VanexAdapter implements IDeliveryProvider {

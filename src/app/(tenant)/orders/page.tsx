@@ -78,6 +78,7 @@ export default function OrdersPage() {
   const updateOrderStatus = useDataStore(s => s.updateOrderStatus);
   const patchOrder        = useDataStore(s => s.patchOrder);
   const sendOrderToVanex  = useDataStore(s => s.sendOrderToVanex);
+  const cancelOrderVanex  = useDataStore(s => s.cancelOrderVanex);
   const fetchVanexSubCities = useDataStore(s => s.fetchVanexSubCities);
 
   const { showToast } = useToast();
@@ -457,34 +458,25 @@ export default function OrdersPage() {
       const { orderId, newStatus, label } = confirmAction;
       const order = myOrders.find(o => o.id === orderId);
       
-      const isVanexTarget = !!(
-        newStatus === 'processing' &&
-        order &&
-        order.deliveryType === 'courier_company' &&
-        (() => {
-          const courier = myCouriers.find(c => c.id === order.courierCompanyId);
-          return courier?.isApiConnected && (courier.apiProvider?.includes('vanex') || courier.provider?.includes('vanex') || courier.name.includes('فانكس'));
-        })()
-      );
+      // ═══ الأتمتة العكسية — إلغاء الطلبية من نظام فانكس قبل التأكيد محلياً ═══
+      if (newStatus === 'cancelled' && order?.vanex_package_id) {
+        showToast('جاري إلغاء الطلبية تلقائياً من نظام شركة التوصيل...', 'info');
+        const cancelResult = await cancelOrderVanex(orderId);
+        if (!cancelResult.success) {
+          showToast(`❌ تعذر الإلغاء لأن النظام لم يستطع حذفها من فانكس: ${cancelResult.error}`, 'error');
+          setConfirmAction(null);
+          return; // منع الإلغاء محلياً لضمان التطابق
+        }
+        showToast('✅ تم إلغاء الشحنة على منصة فانكس', 'success');
+      }
 
       await updateOrderStatus(orderId, newStatus);
       showToast(`تم تغيير حالة الطلبية إلى: ${label}`, 'success');
       setConfirmAction(null);
 
-      // ═══ الإرسال التلقائي لفانكس للمندوب ═══
-      if (isVanexTarget && order) {
-        showToast(`جاري إرسال الطلبية ${order.orderNumber} لشركة التوصيل...`, 'info');
-        const result = await sendOrderToVanex(orderId);
-        if (result.success) {
-           showToast(`✅ تم الإرسال لشركة التوصيل بنجاح`, 'success');
-        } else {
-           showToast(`❌ فشل الإرسال التلقائي لفانكس: ${result.error}`, 'error');
-        }
-      }
-
-      // Invalidate and refetch React Query cache for orders
+      // Invalidate React Query cache for orders
       queryClient.invalidateQueries({ queryKey: ['orders', tid] });
-      // If order was cancelled/returned, it might affect inventory, so invalidate products too
+      // If order was cancelled/returned, it affects inventory, so invalidate products too
       if (newStatus === 'cancelled' || newStatus === 'return_confirmed') {
          queryClient.invalidateQueries({ queryKey: ['products', tid] });
       }
@@ -525,16 +517,19 @@ export default function OrdersPage() {
     if (!courier?.isApiConnected) return null;
 
     if (!order.vanex_package_code) {
-      if (order.status === 'processing') return { label: '📦 لم تُرسل', bg: 'bg-gray-100', text: 'text-gray-500' };
+      if (order.status === 'pending') return { label: '📦 لم تُرسل', bg: 'bg-gray-100', text: 'text-gray-500' };
       return null;
     }
 
     const raw = order.courier_raw_status;
-    if (raw === 'pending') return { label: '🚛 أُرسلت', bg: 'bg-violet-50', text: 'text-violet-600' };
-    if (raw === 'shipped' || raw === 'on_track' || raw === 'enable_delivery') return { label: '🏃 في الطريق', bg: 'bg-blue-50', text: 'text-blue-600' };
-    if (raw === 'delivered') return { label: '✅ وصلت', bg: 'bg-emerald-50', text: 'text-emerald-600' };
-    if (raw === 'returned') return { label: '🔄 مرتجعة', bg: 'bg-yellow-50', text: 'text-yellow-700' };
-    if (raw === 'cancelled') return { label: '❌ ملغاة', bg: 'bg-red-50', text: 'text-red-600' };
+    if (raw === 'store_new' || raw === 'pending') return { label: '🚛 أُرسلت', bg: 'bg-violet-50', text: 'text-violet-600' };
+    if (raw === 'ship_received') return { label: '📦 قيد التجهيز', bg: 'bg-indigo-50', text: 'text-indigo-600' };
+    if (raw === 'ship_preperation' || raw === 'ship_ongoing' || raw === 'ship_pending' || raw === 'shipped' || raw === 'on_track' || raw === 'enable_delivery') return { label: '🏃 في الطريق', bg: 'bg-blue-50', text: 'text-blue-600' };
+    if (raw === 'completed' || raw === 'pending_office_sett' || raw === 'pending_store_sett' || raw === 'delivered' || raw === 'complete') return { label: '✅ وصلت', bg: 'bg-emerald-50', text: 'text-emerald-600' };
+    if (raw === 'ship_del_return' || raw === 'returned') return { label: '🔄 راجعة', bg: 'bg-yellow-50', text: 'text-yellow-700' };
+    if (raw === 'store_return') return { label: '🔄 مستردة للمخزن', bg: 'bg-yellow-100', text: 'text-yellow-800' };
+    if (raw === 'store_canceled' || raw === 'cancelled') return { label: '❌ ملغاة', bg: 'bg-red-50', text: 'text-red-600' };
+    
     return { label: '🚛 مع فانكس', bg: 'bg-violet-50', text: 'text-violet-600' };
   };
 
@@ -770,7 +765,7 @@ export default function OrdersPage() {
                           const courier = myCouriers.find(c => c.id === o.courierCompanyId);
                           // ═══ Dedup Guard في الواجهة: لا يظهر الزر إذا أُرسلت مسبقاً ═══
                           const isApiOrder = 
-                            o.status === 'processing' && 
+                            o.status === 'pending' && 
                             o.deliveryType === 'courier_company' && 
                             !!courier?.isApiConnected &&
                             !o.vanex_package_id;
@@ -821,15 +816,22 @@ export default function OrdersPage() {
                           const isSentToVanex = !!(o.vanex_package_id || o.vanex_package_code);
                           let displayedActions = actions;
                           if (isSentToVanex) {
-                            // إخفاء كل الأزرار تماماً
-                            displayedActions = [];
+                            if (o.status === 'pending') {
+                              // إظهار زر الإلغاء فقط لسحبها من الـ API
+                              displayedActions = [
+                                { status: 'cancelled', label: 'إلغاء', icon: <Ban size={14} />, bg: 'bg-red-50', text: 'text-red-700', hover: 'hover:bg-red-100' }
+                              ];
+                            } else {
+                              // إخفاء الزر إذا تحركت الشحنة
+                              displayedActions = [];
+                            }
                           }
 
                           return (
                             <>
                               {isSentToVanex && o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'return_confirmed' && (
                                 <span className="text-[10px] text-violet-600 bg-violet-50 px-2 py-1.5 rounded-md text-center max-w-[140px] leading-tight font-medium border border-violet-100">
-                                  الحالة تُحدَّث من فانكس تلقائياً
+                                  {o.status === 'pending' ? 'أُرسلت لفانكس (بانتظار المندوب)' : 'الحالة تُحدَّث من فانكس تلقائياً'}
                                 </span>
                               )}
                               <div className="flex gap-1.5 flex-wrap justify-center">

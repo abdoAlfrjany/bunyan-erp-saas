@@ -10,15 +10,25 @@ const VANEX_WEBHOOK_SECRET = process.env.VANEX_WEBHOOK_SECRET;
 
 // ── نفس mapping الموجود في VanexAdapter.ts ──
 const VANEX_TO_BUNYAN_STATUS: Record<string, string> = {
-  store_canceled:  'cancelled',
-  pending:         'pending',
-  shipped:         'with_courier',
-  on_track:        'with_courier',
-  enable_delivery: 'with_courier',
-  delivered:       'delivered',
-  complete:        'delivered',
-  returned:        'return_confirmed',
-  cancelled:       'cancelled',
+  store_new:           'pending',         
+  pending:             'pending',         
+  ship_received:       'ready_to_ship',   
+  ship_preperation:    'with_courier',    
+  ship_ongoing:        'with_courier',    
+  ship_pending:        'with_courier',    
+  shipped:             'with_courier',    
+  on_track:            'with_courier',    
+  enable_delivery:     'with_courier',    
+  pending_office_sett: 'delivered',       
+  pending_store_sett:  'delivered',       
+  completed:           'delivered',       
+  delivered:           'delivered',       
+  complete:            'delivered',       
+  ship_del_return:     'pending_return',  
+  returned:            'pending_return',  
+  store_return:        'return_confirmed',
+  store_canceled:      'cancelled',       
+  cancelled:           'cancelled',       
 };
 
 export async function POST(req: NextRequest) {
@@ -121,10 +131,14 @@ export async function POST(req: NextRequest) {
     // ── 7. معالجة كل حالة ──
 
     if (bunyanStatus === 'pending') {
-      // لا تحديث للطلبية — فقط تسجيل
-    } else if (bunyanStatus === 'with_courier' || bunyanStatus === 'delivered') {
-      // تحديث الحالة فقط — لا مخزون، لا مالي
-      // الأموال تُعالج عبر التسويات (Settlements) فقط
+      // لا تحديث للحالة، تبقى كما هي بانتظار استلام المندوب
+    } else if (
+      bunyanStatus === 'ready_to_ship' || 
+      bunyanStatus === 'with_courier' || 
+      bunyanStatus === 'delivered' || 
+      bunyanStatus === 'pending_return'
+    ) {
+      // الأطوار التي تغير الحالة فقط ولا تسترد المخزون
       await supabaseAdmin
         .from('orders')
         .update({

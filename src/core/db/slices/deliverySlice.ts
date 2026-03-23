@@ -30,6 +30,7 @@ export interface DeliverySlice {
 
   // ══ VanEx Integration ══
   sendOrderToVanex: (orderId: string) => Promise<{ success: boolean; error?: string }>;
+  cancelOrderVanex: (orderId: string) => Promise<{ success: boolean; error?: string }>;
   fetchVanexSettlements: (courierId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
   applyVanexSettlement: (settlementId: string, courierId: string) => Promise<{ success: boolean; error?: string }>;
   fetchVanexSubCities: (cityId: number, courierId: string) => Promise<{ success: boolean; error?: string }>;
@@ -221,7 +222,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
         const { error: updateError } = await supabase
           .from('orders')
           .update({
-            status: 'ready_to_ship',
+            status: 'pending', // تبقى الحالة كما هي (Pending) بانتظار استلام المندوب
             vanex_package_code: result.trackingCode,
             vanex_package_id: vanexPackageId,
             courier_raw_status: result.rawStatus ?? 'pending',
@@ -243,6 +244,50 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
         success: false,
         error: err instanceof Error ? err.message : 'خطأ غير متوقع في الاتصال بـ VanEx',
       };
+    }
+  },
+
+  cancelOrderVanex: async (orderId) => {
+    // جلب الطلبية مباشرة من Supabase 
+    const { createClient } = await import('../supabase');
+    const supabase = createClient();
+    
+    const { data: row, error: fetchError } = await supabase
+      .from('orders')
+      .select('*, couriers(*)')
+      .eq('id', orderId)
+      .single();
+
+    if (fetchError || !row) return { success: false, error: 'الطلبية غير موجودة' };
+    if (!row.vanex_package_id) return { success: false, error: 'الطلبية ليست مرتبطة بفانكس' };
+    
+    const courierData = row.couriers;
+    if (!courierData || !courierData.is_api_connected || !courierData.api_credentials?.token) {
+      return { success: false, error: 'بيانات ربط شركة التوصيل مفقودة' };
+    }
+
+    try {
+      const { getDeliveryAdapter } = await import('../../delivery');
+      const adapter = getDeliveryAdapter(courierData.api_provider || 'vanex');
+      
+      const result = await adapter.cancelShipment(row.vanex_package_id, courierData.api_credentials.token);
+      
+      if (result.success) {
+        // تحديث قاعدة البيانات محلياً
+        await supabase
+          .from('orders')
+          .update({
+            vanex_package_id: null,
+            vanex_package_code: null,
+            courier_raw_status: null
+          })
+          .eq('id', orderId);
+          
+        return { success: true };
+      }
+      return { success: false, error: result.error || 'فشل إلغاء الشحنة من فانكس' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'خطأ غير متوقع' };
     }
   },
 

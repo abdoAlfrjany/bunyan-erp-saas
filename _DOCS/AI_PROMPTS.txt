@@ -166,9 +166,8 @@ cloude sounnet + planning ٍ
 ```
 ـــــــــــــــــــ
 git add .
-git commit -m "وصف ما تم في الجلسة"
-git push
-
+git commit -m "fix: resolve API connection check and update settlements UI labels"
+git push origin main
 
 ـــــــــــــــــــ
 

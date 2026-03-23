@@ -102,17 +102,12 @@ export default function SettlementsPage() {
     setFetchingId(courierId);
     try {
       const result = await fetchVanexSettlements(courierId);
+      // إعادة جلب التسويات من قاعدة البيانات
+      queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
       if (result.success) {
-        // إعادة جلب التسويات من قاعدة البيانات
-        queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
-        showToast(
-          result.count === 0
-            ? `تم إرسال الطلب: لا توجد تسويات جديدة حالياً لدى ${courier.name}`
-            : `✅ تم إرسال الطلب: وحفظ ${result.count} تسوية جديدة من ${courier.name}`,
-          result.count === 0 ? 'warning' : 'success'
-        );
+        showToast('✅ تم إرسال طلب التسوية إلى فانكس بنجاح. ستظهر التسويات هنا فور معالجتها.', 'success');
       } else {
-        showToast(result.error || 'فشل جلب التسويات', 'error');
+        showToast(result.error || 'فشل إرسال طلب التسوية', 'error');
       }
     } finally {
       setFetchingId(null);

@@ -97,11 +97,15 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
         parent_mapping_id: null,
         bunyan_city_id: m.bunyan_city_id ? Number(m.bunyan_city_id) : null,
         bunyan_region_id: m.bunyan_region_id ? Number(m.bunyan_region_id) : null,
-        provider_city_id: m.provider_city_id,
+        provider_city_id: String(m.provider_city_id),
         provider_region_id: null,
         is_active: m.is_active,
       };
-      if (m.id && !String(m.id).includes('-')) payload.id = m.id;
+      
+      // If we have a persistent ID (integer), include it to guide the upsert
+      if (m.id && !isNaN(Number(m.id))) {
+        payload.id = Number(m.id);
+      }
 
       const { data, error } = await supabase
         .from('provider_geo_mappings')
@@ -159,12 +163,16 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
         provider: m.provider,
         bunyan_city_id: null,
         bunyan_region_id: Number(m.bunyan_region_id),
-        provider_region_id: Number(m.provider_region_id),
-        provider_city_id: Number(m.provider_city_id),
+        provider_region_id: String(m.provider_region_id),
+        provider_city_id: String(m.provider_city_id),
         parent_mapping_id: isNaN(Number(m.city_mapping_id)) ? m.city_mapping_id : Number(m.city_mapping_id),
         is_active: m.is_active,
       };
-      if (m.id && !String(m.id).includes('-')) payload.id = m.id;
+
+      // If we have a persistent ID (integer), include it
+      if (m.id && !isNaN(Number(m.id))) {
+        payload.id = Number(m.id);
+      }
 
       const { data, error } = await supabase
         .from('provider_geo_mappings')
