@@ -741,89 +741,99 @@ export default function OrdersPage() {
                       <div className="flex flex-col gap-2 items-center justify-center">
                         {(() => {
                           const courier = myCouriers.find(c => c.id === o.courierCompanyId);
-                          // ═══ Dedup Guard في الواجهة: لا يظهر الزر إذا أُرسلت مسبقاً ═══
+                          const isSentToVanex = !!(o.vanex_package_id || o.vanex_package_code);
+                          
+                          // ═══ Dedup Guard في الواجهة: يظهر حصراً إذا لم تُرسل مسبقاً ═══
                           const isApiOrder = 
                             o.status === 'pending' && 
                             o.deliveryType === 'courier_company' && 
                             !!courier?.isApiConnected &&
-                            !o.vanex_package_id;
-                          if (isApiOrder) {
-                            return (
-                              <button
-                                disabled={sendingToVanex === o.id}
-                                onClick={async () => {
-                                  setSendingToVanex(o.id);
-                                  try {
-                                    const courierName = courier?.name ?? 'شركة التوصيل';
-                                    const result = await sendOrderToVanex(o.id);
-                                    if (result.success) {
-                                      showToast(
-                                        `✅ تم إرسال ${o.orderNumber} لـ ${courierName} بنجاح`,
-                                        'success'
-                                      );
-                                      queryClient.invalidateQueries({ queryKey: ['orders', tid] });
-                                    } else {
-                                      showToast(result.error || 'فشل إرسال الطلبية', 'error');
-                                    }
-                                  } finally {
-                                    setSendingToVanex(null);
-                                  }
-                                }}
-                                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
-                                  sendingToVanex === o.id
-                                    ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                                    : 'bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-200'
-                                }`}
-                              >
-                                {sendingToVanex === o.id ? (
-                                  <>
-                                    <span className="w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
-                                    جاري الإرسال...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Truck size={12} />
-                                    جاهز للشحن
-                                  </>
-                                )}
-                              </button>
-                            );
-                          }
+                            !isSentToVanex;
 
-                          // ═══ التحكم بأزرار الحالة للطلبيات المرسلة لفانكس ═══
-                          const isSentToVanex = !!(o.vanex_package_id || o.vanex_package_code);
+                          // ═══ التحكم بأزرار الحالة حسب الارتباط بفانكس ═══
                           let displayedActions = actions;
                           if (isSentToVanex) {
                             if (o.status === 'pending') {
-                              // إظهار زر الإلغاء فقط لسحبها من الـ API
+                              // إظهار زر الإلغاء بشكل أنيق وبكامل العرض للسحب من API
                               displayedActions = [
-                                { status: 'cancelled', label: 'إلغاء', icon: <Ban size={14} />, bg: 'bg-red-50', text: 'text-red-700', hover: 'hover:bg-red-100' }
+                                { status: 'cancelled', label: 'إلغاء وفك الربط', icon: <Ban size={14} className="mb-px" />, bg: 'bg-white', text: 'text-red-600 border border-red-200 shadow-sm w-full', hover: 'hover:bg-red-50 hover:border-red-300' }
                               ];
                             } else {
-                              // إخفاء الزر إذا تحركت الشحنة
+                              // إخفاء الأزرار إذا تحركت الشحنة فعلياً
                               displayedActions = [];
                             }
                           }
 
                           return (
-                            <>
+                            <div className="flex flex-col gap-2 w-full max-w-[140px] mx-auto opacity-0 animate-fade-in" style={{animationFillMode: 'forwards'}}>
+                              
+                              {/* 1. زر الإرسال الرئيسي لفانكس (قبل الإرسال) */}
+                              {isApiOrder && (
+                                <button
+                                  disabled={sendingToVanex === o.id}
+                                  onClick={async () => {
+                                    setSendingToVanex(o.id);
+                                    try {
+                                      const courierName = courier?.name ?? 'شركة التوصيل';
+                                      const result = await sendOrderToVanex(o.id);
+                                      if (result.success) {
+                                        showToast(`✅ تم إرسال ${o.orderNumber} لـ ${courierName} بنجاح`, 'success');
+                                        queryClient.invalidateQueries({ queryKey: ['orders', tid] });
+                                      } else {
+                                        showToast(result.error || 'فشل إرسال الطلبية', 'error');
+                                      }
+                                    } finally {
+                                      setSendingToVanex(null);
+                                    }
+                                  }}
+                                  className={`relative w-full overflow-hidden flex items-center justify-center gap-1.5 text-[11px] px-3 py-2 rounded-xl font-black transition-all duration-300 ${
+                                    sendingToVanex === o.id
+                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                                      : 'bg-gradient-to-r from-bunyan-600 to-bunyan-500 text-white shadow-md shadow-bunyan-500/20 hover:shadow-lg hover:-translate-y-0.5'
+                                  }`}
+                                >
+                                  {sendingToVanex === o.id ? (
+                                    <><span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" /> جاري الإرسال</>
+                                  ) : (
+                                    <><Truck size={14} className="mb-px" /> إرسال النظام</>
+                                  )}
+                                </button>
+                              )}
+
+                              {/* 2. شارة النظام الذكي (بعد الإرسال) */}
                               {isSentToVanex && o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'return_confirmed' && (
-                                <span className="text-[10px] text-violet-600 bg-violet-50 px-2 py-1.5 rounded-md text-center max-w-[140px] leading-tight font-medium border border-violet-100">
-                                  {o.status === 'pending' ? 'أُرسلت لفانكس (بانتظار المندوب)' : 'الحالة تُحدَّث من فانكس تلقائياً'}
+                                <div className="flex items-center justify-center gap-1.5 px-2 py-1.5 bg-violet-50/80 border border-violet-100/80 rounded-lg">
+                                  <RefreshCw size={12} className="text-violet-500 animate-[spin_3s_linear_infinite]" />
+                                  <span className="text-[10px] font-bold text-violet-700 tracking-tight">
+                                    {o.status === 'pending' ? 'بانتظار المندوب' : 'مزامنة أوتوماتيكية'}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* 3. أزرار العمليات الديناميكية */}
+                              {(!isApiOrder && displayedActions.length > 0) && (
+                                <div className="flex flex-wrap gap-1.5 justify-center">
+                                  {displayedActions.map((a) => (
+                                    <button 
+                                      key={a.status} 
+                                      onClick={() => handleStatusChange(o.id, a.status)}
+                                      className={`flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${a.bg} ${a.text} ${a.hover} ${a.text.includes('border') ? '' : 'border border-transparent hover:scale-105 active:scale-95'}`}
+                                      title={`تغيير الحالة إلى ${a.label}`}
+                                    >
+                                      {a.icon}
+                                      <span>{a.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* 4. حالة السكون التام (مكتملة / بدون أكشن) */}
+                              {!isApiOrder && displayedActions.length === 0 && o.status !== 'processing' && !isSentToVanex && (
+                                <span className="text-[11px] font-bold text-gray-400 px-3 py-1.5 bg-gray-50/80 border border-gray-100 rounded-lg w-full text-center tracking-wide">
+                                  مُكتمل الإجراء
                                 </span>
                               )}
-                              <div className="flex gap-1.5 flex-wrap justify-center">
-                                {displayedActions.map((a) => (
-                                  <button key={a.status} onClick={() => handleStatusChange(o.id, a.status)}
-                                    className={`flex items-center gap-1 px-2.5 py-1.5 ${a.bg} ${a.text} ${a.hover} border border-transparent rounded-lg text-xs font-bold transition-colors`}
-                                    title={`تغيير الحالة إلى ${a.label}`}>
-                                    {a.icon}
-                                    <span className="hidden xl:inline">{a.label}</span>
-                                  </button>
-                                ))}
-                                {displayedActions.length === 0 && o.status !== 'processing' && !isSentToVanex && <span className="text-xs text-gray-400">لا يوجد إجراء</span>}
-                              </div>
-                            </>
+                            </div>
                           );
                         })()}
                       </div>
