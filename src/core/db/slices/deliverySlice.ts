@@ -361,14 +361,8 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
   },
 
   fetchVanexSettlements: async (courierId) => {
-    const state = get();
-    const courier = state.couriers.find((c: any) => c.id === courierId);
-    if (!courier?.isApiConnected || !courier.apiCredentials?.token) {
-      return { success: false, error: 'الشركة غير مربوطة بـ API' };
-    }
-
     try {
-      // استدعاء API الخلفية التي تحفظ التسويات في قاعدة البيانات مباشرة
+      // استدعاء API الخلفية التي تقوم بالتحقق من الربط وحفظ التسويات
       const res = await fetch('/api/vanex/settlements/fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

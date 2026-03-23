@@ -12,7 +12,7 @@ import {
   Landmark, RefreshCw, CheckCircle2, Clock,
   AlertCircle, Loader2, TrendingDown, Banknote,
   Building2, ChevronDown, ChevronUp, ArrowDownCircle,
-  Wallet, CreditCard
+  Wallet, CreditCard, Send, Info
 } from 'lucide-react';
 import type { VanexSettlement } from '@/core/types';
 
@@ -107,8 +107,8 @@ export default function SettlementsPage() {
         queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
         showToast(
           result.count === 0
-            ? `لا توجد تسويات جديدة من ${courier.name}`
-            : `✅ تم حفظ ${result.count} تسوية جديدة من ${courier.name}`,
+            ? `تم إرسال الطلب: لا توجد تسويات جديدة حالياً لدى ${courier.name}`
+            : `✅ تم إرسال الطلب: وحفظ ${result.count} تسوية جديدة من ${courier.name}`,
           result.count === 0 ? 'warning' : 'success'
         );
       } else {
@@ -221,6 +221,19 @@ export default function SettlementsPage() {
         </div>
       </div>
 
+      {/* تنبيه الأتمتة */}
+      <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+        <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+          <Info size={16} className="text-purple-600" />
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-purple-900">نظام التسوية الآلي مفعّل</h3>
+          <p className="text-[11px] text-purple-700 leading-relaxed mt-0.5">
+            عند إرسال طلب تسوية، يتم جلبها من فانكس بحالة "قيد الانتظار". وبمجرد أن يوافق عليها محاسب فانكس (حالة مدفوعة)، سيقوم النظام آلياً وبدون تدخل منك بإيداع الأموال في خزينتك كل 15 دقيقة.
+          </p>
+        </div>
+      </div>
+
       {/* قسم جلب التسويات */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
@@ -263,12 +276,12 @@ export default function SettlementsPage() {
                   <button
                     onClick={() => handleFetch(company.id)}
                     disabled={fetchingId === company.id}
-                    className="inline-flex items-center gap-1.5 text-xs bg-bunyan-50 hover:bg-bunyan-100 text-bunyan-700 border border-bunyan-200 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl transition-all shadow-sm hover:shadow-md disabled:opacity-50"
                   >
                     {fetchingId === company.id ? (
-                      <><Loader2 size={12} className="animate-spin" /> جاري الجلب...</>
+                      <><Loader2 size={13} className="animate-spin" /> جاري الإرسال...</>
                     ) : (
-                      <><RefreshCw size={12} /> جلب التسويات</>
+                      <><Send size={13} /> إرسال طلب تسوية</>
                     )}
                   </button>
                 </div>
@@ -320,7 +333,7 @@ export default function SettlementsPage() {
             <Landmark size={36} className="mx-auto text-gray-300 mb-3" />
             <p className="text-sm text-gray-400">
               {mySettlements.length === 0
-                ? 'لا توجد تسويات — اضغط "جلب التسويات" أولاً'
+                ? 'لا توجد تسويات — اضغط "إرسال طلب تسوية" أولاً'
                 : 'لا توجد تسويات تطابق الفلتر'}
             </p>
           </div>

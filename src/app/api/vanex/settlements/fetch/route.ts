@@ -35,9 +35,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'الشركة غير موجودة' }, { status: 404 });
     }
 
-    const token = courier.api_credentials?.token;
+    // 2. التحقق من التوكين بشكل قوي (نراعي أن jsonb قد يأتي كـ string أحياناً)
+    const rawCreds = courier.api_credentials;
+    const creds = typeof rawCreds === 'string' ? JSON.parse(rawCreds) : rawCreds;
+    const token = creds?.token;
+
     if (!token) {
-      return NextResponse.json({ error: 'الشركة غير مربوطة بـ API — يرجى تسجيل الدخول لحساب الشركة أولاً' }, { status: 400 });
+      return NextResponse.json({ error: 'الشركة غير مربوطة بـ API — يرجى تسجيل الدخول لحساب الشركة من صفحة إدارة الشركات أولاً' }, { status: 400 });
     }
 
     // 2. جلب التسويات من فانكس
