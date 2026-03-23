@@ -135,31 +135,8 @@ export default function OrdersPage() {
     }
   };
 
-  // ═══ مزامنة فانكس تلقائياً عند فتح الصفحة ═══
-  useEffect(() => {
-    if (!tid) return;
-    const syncVanex = async () => {
-      setIsSyncing(true);
-      try {
-        const res = await fetch('/api/vanex/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        const result = await res.json();
-        // تحديث React Query cache بعد المزامنة إذا تم تحديث طلبيات فعلية
-        if (result.success && result.synced > 0) {
-          showToast(`تم التحديث التلقائي لحالة ${result.synced} طلبية من فانكس`, 'success');
-          queryClient.invalidateQueries({ queryKey: ['orders', tid] });
-        }
-      } catch (_) {
-        // صامت — المزامنة غير حرجة
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-    syncVanex();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tid]);
+  // ═══ الاعتماد كلياً على الـ Webhooks الآن لضمان كفاءة أداء النظام ═══
+  // تم إزالة `syncVanex` التلقائي لمنع الضغط على خوادم Vanex.
 
   // الواجهة
   const [slideOpen, setSlideOpen] = useState(false);
@@ -569,16 +546,7 @@ export default function OrdersPage() {
           <p className="text-sm text-gray-500 mt-1">تتبع رحلة الطلبيات من الإنشاء وحتى التوصيل</p>
         </div>
         <div className="flex items-center gap-2">
-          {(!statusFilter || statusFilter === 'all' || statusFilter === 'ready_to_ship' || statusFilter === 'with_courier') && (
-            <button
-              onClick={handleManualSync}
-              disabled={isSyncing}
-              className="hidden sm:flex items-center gap-2 px-4 py-2.5 bg-violet-50 text-violet-700 rounded-xl text-sm font-bold hover:bg-violet-100 transition-colors border border-violet-200 disabled:opacity-50"
-            >
-              <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-              مزامنة الحالات
-            </button>
-          )}
+          {/* الزر الخاص بـ مزامنة الحالات تم نقله إلى قسم الفلاتر المتقدمة كخيار طوارئ */}
           <button onClick={() => setSlideOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50">
             <Plus size={18} /> طلبية جديدة
@@ -653,9 +621,19 @@ export default function OrdersPage() {
                 ))}
               </select>
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end gap-3 justify-end md:col-span-1 border-t md:border-t-0 md:border-r border-gray-100 pt-3 md:pt-0 md:pr-4">
+              <button
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                title="يُستخدم في حالات الطوارئ فقط إذا تأخر الـ Webhook"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors ml-auto md:ml-0"
+              >
+                <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                مزامنة قسرية
+              </button>
+              
               <button onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSearch(''); setCourierFilter('all'); }}
-                className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-red-600 transition-colors w-full text-right">
+                className="px-3 py-2 border rounded-lg text-sm font-bold border-gray-200 text-gray-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors">
                 مسح الفلاتر
               </button>
             </div>
