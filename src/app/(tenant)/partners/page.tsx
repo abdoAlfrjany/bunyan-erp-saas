@@ -1,53 +1,88 @@
-// src/app/(tenant)/partners/page.tsx
-// الوظيفة: الشركاء — جدول + إضافة/تعديل + حذف
-// الجداول: partners
-// الصلاحية: OWNER فقط
-
 'use client';
 
-import { useState } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useState, useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import {
+  useAllPartners, useAllOrders, useAllTransactions, useGetForTenant,
+  useAddPartner, useUpdatePartner, useDeletePartner, useAddUser,
+  useWithdrawPartnerFunds, useDistributeProfits
+} from '@/core/db/hooks';
 import { formatCurrency } from '@/shared/utils/format';
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
+import { EmptyState } from '@/shared/components/ui/EmptyState';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Handshake, Plus, Trash2, Edit2, TrendingUp, AlertCircle, PiggyBank, Briefcase, HandCoins, Key, CheckSquare, Square } from 'lucide-react';
-import type { Partner, Order, TreasuryTransaction, TenantUser, UserPermissions } from '@/core/db/seed';
+import {
+  Handshake, Plus, Trash2, Edit2, TrendingUp, AlertCircle,
+  PiggyBank, Briefcase, HandCoins, Key, MoreVertical
+} from 'lucide-react';
+import type { Partner, Order, TreasuryTransaction, UserPermissions } from '@/core/db/seed';
 import { PARTNER_PERMISSIONS } from '@/core/db/seed';
 
+// Toggle Switch — بديل Checkbox في الصلاحيات
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <div className="flex items-center justify-between py-1.5">
+      <span className="text-sm text-gray-700">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          checked ? 'bg-bunyan-600' : 'bg-gray-300'
+        }`}
+      >
+        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-4' : 'translate-x-1'
+        }`} />
+      </button>
+    </div>
+  );
+}
+
 export default function PartnersPage() {
-  const { user } = useAuthStore();
-  const { partners, orders, transactions, getForTenant, addPartner, updatePartner, deletePartner, addUser, withdrawPartnerFunds, distributeProfits } = useDataStore();
+  const user = useUser();
+  const partners = useAllPartners();
+  const orders = useAllOrders();
+  const transactions = useAllTransactions();
+  const getForTenant = useGetForTenant();
+  const addPartner = useAddPartner();
+  const updatePartner = useUpdatePartner();
+  const deletePartner = useDeletePartner();
+  const addUser = useAddUser();
+  const withdrawPartnerFunds = useWithdrawPartnerFunds();
+  const distributeProfits = useDistributeProfits();
   const { showToast } = useToast();
+
   const tid = user?.tenantId || '';
-  const myPartners = getForTenant(partners, tid);
-  
-  const totalCapital = myPartners.reduce((s, p) => s + p.capitalContribution, 0);
-  const totalDues = myPartners.reduce((s, p) => s + p.walletBalance, 0);
-  const totalDebts = myPartners.reduce((s, p) => s + p.debtBalance, 0);
+  const myPartners = useMemo(() => getForTenant(partners, tid), [partners, tid, getForTenant]);
+
+  const totalCapital    = myPartners.reduce((s, p) => s + p.capitalContribution, 0);
+  const totalDues       = myPartners.reduce((s, p) => s + p.walletBalance, 0);
+  const totalDebts      = myPartners.reduce((s, p) => s + p.debtBalance, 0);
   const totalPercentage = myPartners.reduce((s, p) => s + p.profitPercentage, 0);
 
-  const myOrders: Order[] = getForTenant(orders, tid).filter(o => o.status === 'delivered');
+  const myOrders: Order[] = useMemo(
+    () => getForTenant(orders, tid).filter(o => o.status === 'delivered'),
+    [orders, tid, getForTenant]
+  );
   const totalRevenue = myOrders.reduce((s, o) => s + o.total, 0);
   const totalCost = myOrders.reduce((s, o) => s + o.items.reduce((is, it) => is + it.unitCost * it.quantity, 0), 0);
   const myExpenses: TreasuryTransaction[] = getForTenant(transactions, tid).filter(t => t.transactionType === 'expense');
   const totalExpenses = myExpenses.reduce((s, t) => s + Math.abs(t.amount), 0);
-  
   const totalNetProfit = totalRevenue - totalCost - totalExpenses;
-  const myDistributionsLogs: TreasuryTransaction[] = getForTenant(transactions, tid).filter(t => t.transactionType === 'profit_distribution_record');
-  const totalProfitProcessed = myDistributionsLogs.reduce((s, t) => s + Math.abs(t.amount), 0);
-  
+  const myDistLogs: TreasuryTransaction[] = getForTenant(transactions, tid).filter(t => t.transactionType === 'profit_distribution_record');
+  const totalProfitProcessed = myDistLogs.reduce((s, t) => s + Math.abs(t.amount), 0);
   const unallocatedProfit = totalNetProfit - totalProfitProcessed;
 
-  const [slideOpen, setSlideOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [slideOpen, setSlideOpen]   = useState(false);
+  const [editingId, setEditingId]   = useState<string | null>(null);
+  const [deleteId, setDeleteId]     = useState<string | null>(null);
   const [withdrawId, setWithdrawId] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState<number | string>('');
   const [withdrawDeductDebt, setWithdrawDeductDebt] = useState(false);
   const [withdrawDate, setWithdrawDate] = useState(new Date().toISOString().split('T')[0]);
   const [withdrawNote, setWithdrawNote] = useState('');
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '', phone: '', email: '', password: '', isActive: true,
@@ -56,63 +91,53 @@ export default function PartnersPage() {
     customPerms: { orders: false, inventory: false, delivery: false, dashboard: false, treasury: false }
   });
 
-  const resetForm = () => { 
-    setForm({ 
-      name: '', phone: '', email: '', password: '', isActive: true, 
+  const resetForm = () => {
+    setForm({
+      name: '', phone: '', email: '', password: '', isActive: true,
       partnerRole: 'active_partner', profitPercentage: 0, capitalContribution: 0,
       customPerms: { orders: false, inventory: false, delivery: false, dashboard: false, treasury: false }
-    }); 
-    setEditingId(null); 
+    });
+    setEditingId(null);
   };
 
   const openEdit = (p: Partner) => {
-    setForm({ 
-      ...form, 
-      name: p.name, phone: p.phone, email: p.email || '', password: '', 
+    setForm({
+      ...form, name: p.name, phone: p.phone, email: p.email || '', password: '',
       isActive: p.isActive, partnerRole: p.partnerRole || 'active_partner',
-      profitPercentage: p.profitPercentage, capitalContribution: p.capitalContribution 
+      profitPercentage: p.profitPercentage, capitalContribution: p.capitalContribution
     });
-    setEditingId(p.id);
-    setSlideOpen(true);
+    setEditingId(p.id); setSlideOpen(true);
   };
 
   const generatePassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let p = '';
-    for(let i=0; i<10; i++) p += chars.charAt(Math.floor(Math.random() * chars.length));
-    setForm({...form, password: p});
+    for (let i = 0; i < 10; i++) p += chars.charAt(Math.floor(Math.random() * chars.length));
+    setForm({ ...form, password: p });
   };
 
   const handleSave = () => {
-    if (!form.name || !form.email) { showToast('يرجى ملء اسم الشريك والبريد الإلكتروني', 'error'); return; }
-
-    const oldPercentage = editingId ? (myPartners.find(p => p.id === editingId)?.profitPercentage || 0) : 0;
-    if (totalPercentage - oldPercentage + form.profitPercentage > 100) {
-      showToast('خطأ: مجموع نسب الشركاء لا يمكن أن يتجاوز 100%، يرجى تعديل النسبة', 'error');
-      return;
+    if (!form.name || !form.email) { showToast('يرجى ملء الاسم والبريد الإلكتروني', 'error'); return; }
+    const oldPct = editingId ? (myPartners.find(p => p.id === editingId)?.profitPercentage || 0) : 0;
+    if (totalPercentage - oldPct + form.profitPercentage > 100) {
+      showToast('مجموع نسب الشركاء لا يمكن تجاوز 100%', 'error'); return;
     }
-
     if (editingId) {
       updatePartner(editingId, {
         name: form.name, phone: form.phone, email: form.email,
         isActive: form.isActive, partnerRole: form.partnerRole,
         profitPercentage: form.profitPercentage, capitalContribution: form.capitalContribution
       });
-      // يمكن إضافة تحديث TenantUser المرتبط لاحقاً
-      showToast('تم تحديث بيانات الشريك بنجاح', 'success');
+      showToast('تم تحديث بيانات الشريك', 'success');
     } else {
       const ptrId = `ptr-${Date.now()}`;
       addPartner({
-        id: ptrId, tenantId: tid, 
-        name: form.name, phone: form.phone, email: form.email,
+        id: ptrId, tenantId: tid, name: form.name, phone: form.phone, email: form.email,
         profitPercentage: form.profitPercentage, capitalContribution: form.capitalContribution,
-        partnerRole: form.partnerRole, isActive: form.isActive, 
+        partnerRole: form.partnerRole, isActive: form.isActive,
         walletBalance: 0, debtBalance: 0, joinedAt: new Date().toISOString().split('T')[0],
       });
-      
       const passToUse = form.password || '123456';
-      
-      // تحديد الصلاحيات حسب الدور
       let perms: UserPermissions = { ...PARTNER_PERMISSIONS };
       if (form.partnerRole === 'active_partner') {
         perms = {
@@ -125,8 +150,6 @@ export default function PartnersPage() {
           analytics: { view: true, viewFull: true },
           settings: { view: false, edit: false }
         };
-      } else if (form.partnerRole === 'silent_investor') {
-        perms = { ...PARTNER_PERMISSIONS }; // أساسي
       } else if (form.partnerRole === 'custom') {
         perms = {
           inventory: { view: form.customPerms.inventory, add: form.customPerms.inventory, edit: form.customPerms.inventory, delete: false, viewCostPrice: form.customPerms.inventory },
@@ -139,417 +162,468 @@ export default function PartnersPage() {
           settings: { view: false, edit: false }
         };
       }
-      
-      addUser({ 
-        id: `user-${Date.now()}`, tenantId: tid, fullName: form.name, 
-        email: form.email, passwordHash: btoa(passToUse), role: 'partner', 
-        permissions: perms, isActive: form.isActive, 
-        createdAt: new Date().toISOString().split('T')[0], phone: form.phone 
+      addUser({
+        id: `user-${Date.now()}`, tenantId: tid, fullName: form.name,
+        email: form.email, passwordHash: passToUse, role: 'partner',
+        permissions: perms, isActive: form.isActive,
+        createdAt: new Date().toISOString().split('T')[0], phone: form.phone
       });
-      showToast(`تمت إضافة الشريك وإنشاء حساب دخوله. الباسورد: ${passToUse}`, 'success');
+      showToast(`تمت إضافة الشريك — كلمة المرور: ${passToUse}`, 'success');
     }
-    setSlideOpen(false);
-    resetForm();
+    setSlideOpen(false); resetForm();
   };
 
   const handleWithdraw = () => {
     const amt = Number(withdrawAmount);
-    if (!withdrawId || amt <= 0) {
-      showToast('يرجى إدخال مبلغ صحيح للسحب', 'error');
-      return;
-    }
+    if (!withdrawId || amt <= 0) { showToast('يرجى إدخال مبلغ صحيح', 'error'); return; }
     const partner = myPartners.find(p => p.id === withdrawId);
     if (!partner) return;
-    
-    // حساب مقدار الخصم في حال كان المربع مفعّلاً
     const debtToDeduct = (withdrawDeductDebt && partner.debtBalance > 0) ? Math.min(partner.debtBalance, amt) : 0;
-
     const res = withdrawPartnerFunds(withdrawId, amt, {
       description: withdrawNote || 'سحب أرباح',
-      deductDebt: withdrawDeductDebt,
-      transactionDate: withdrawDate
+      deductDebt: withdrawDeductDebt, transactionDate: withdrawDate
     });
-    
     if (res.success) {
-      showToast(`تم سحب الأرباح بنجاح وتسجيل الحركة. تم صرف ${formatCurrency(amt - debtToDeduct)} نقداً.`, 'success');
-      setWithdrawId(null);
-      setWithdrawAmount('');
-      setWithdrawNote('');
-      setWithdrawDeductDebt(false);
+      showToast(`تم سحب ${formatCurrency(amt - debtToDeduct)} بنجاح`, 'success');
+      setWithdrawId(null); setWithdrawAmount(''); setWithdrawNote(''); setWithdrawDeductDebt(false);
     } else {
       showToast(res.error || 'حدث خطأ غير متوقع', 'error');
     }
   };
 
   const handleDistributeProfits = () => {
-    if (unallocatedProfit <= 0) {
-      showToast('لا توجد أرباح غير موزعة لتخريجها', 'error');
-      return;
-    }
+    if (unallocatedProfit <= 0) { showToast('لا توجد أرباح غير موزعة', 'error'); return; }
     const result = distributeProfits(tid, unallocatedProfit);
-    if (result.success) {
-      showToast(`تم تخريج دورة الأرباح بقيمة ${formatCurrency(unallocatedProfit)} بنجاح وتوزيعها على المحافظ`, 'success');
-    } else {
-      showToast(result.error || 'حدث خطأ غير متوقع', 'error');
-    }
+    if (result.success) showToast(`تم توزيع ${formatCurrency(unallocatedProfit)} على المحافظ ✅`, 'success');
+    else showToast(result.error || 'حدث خطأ', 'error');
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-10">
+    <div className="space-y-6 animate-fade-in pb-10" onClick={() => setOpenMenu(null)}>
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Handshake size={24} className="text-bunyan-600" />
-            الشركاء والمستثمرون
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">إدارة حصص الشركاء والمبالغ المالية المستحقة لهم</p>
+          <h1 className="text-2xl font-black text-gray-900">الشركاء والمستثمرون</h1>
+          <p className="text-sm text-gray-500 mt-1">إدارة حصص الشركاء والمبالغ المستحقة</p>
         </div>
         <div className="flex items-center gap-2">
-           {unallocatedProfit > 0 && user?.role === 'owner' && (
-             <button onClick={handleDistributeProfits} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm focus:ring-2 focus:ring-emerald-500/50">
-               <TrendingUp size={18} /> إغلاق وتوزيع الأرباح
-             </button>
-           )}
-           <button onClick={() => { resetForm(); setSlideOpen(true); }} 
-             className="flex items-center gap-2 px-4 py-2 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50">
-             <Plus size={18} /> إضافة شريك
-           </button>
+          {unallocatedProfit > 0 && user?.role === 'owner' && (
+            <button onClick={handleDistributeProfits}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700
+                text-white rounded-xl text-sm font-bold transition-all shadow-sm">
+              <TrendingUp size={16} /> توزيع الأرباح
+            </button>
+          )}
+          <button onClick={() => { resetForm(); setSlideOpen(true); }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-bunyan-600 hover:bg-bunyan-700
+              text-white rounded-xl text-sm font-bold transition-all shadow-sm">
+            <Plus size={16} /> إضافة شريك
+          </button>
         </div>
       </div>
 
-      {/* مؤشر الأرباح الإجمالي */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-        <div className="flex justify-between items-center mb-2">
-          <p className="font-bold text-gray-900 text-sm">مؤشر توزيع الأرباح الإجمالي</p>
-          <p className={`text-sm font-black font-mono ${totalPercentage > 100 ? 'text-red-600' : (totalPercentage === 100 ? 'text-emerald-600' : 'text-blue-600')}`}>
-            {totalPercentage}% المُوَزّع | {Math.max(0, 100 - totalPercentage)}% المتبقي
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: 'عدد الشركاء', value: myPartners.length, icon: Briefcase, color: 'text-bunyan-600', bg: 'bg-bunyan-50', numeric: false },
+          { label: 'إجمالي رأس المال', value: formatCurrency(Math.round(totalCapital)), icon: PiggyBank, color: 'text-blue-600', bg: 'bg-blue-50', numeric: false },
+          { label: 'إجمالي المستحقات', value: formatCurrency(Math.round(totalDues)), icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', numeric: false },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm
+            hover:shadow-md transition-all flex items-center gap-4">
+            <div className={`w-12 h-12 ${kpi.bg} rounded-xl flex items-center justify-center shrink-0`}>
+              <kpi.icon className={`w-6 h-6 ${kpi.color}`} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-0.5">{kpi.label}</p>
+              <p className={`text-xl font-black ${kpi.color}`}>{kpi.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Profit Distribution Banner */}
+      {unallocatedProfit > 0 && user?.role === 'owner' && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center
+          justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center">
+              <TrendingUp size={18} className="text-emerald-700" />
+            </div>
+            <div>
+              <p className="font-bold text-emerald-900 text-sm">دورة أرباح جديدة متاحة</p>
+              <p className="text-xs text-emerald-700">
+                <span className="font-black">{formatCurrency(Math.round(unallocatedProfit))}</span> أرباح صافية لم تُوزّع بعد
+              </p>
+            </div>
+          </div>
+          <button onClick={handleDistributeProfits}
+            className="shrink-0 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white
+              font-bold rounded-xl text-sm transition-all">
+            تخريج وتوزيع
+          </button>
+        </div>
+      )}
+
+      {/* Debts Alert */}
+      {totalDebts > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle size={18} className="text-red-600 shrink-0" />
+          <p className="text-sm text-red-800">
+            <span className="font-bold">تنبيه:</span> إجمالي ديون الشركاء{' '}
+            <span className="font-black font-mono">{formatCurrency(Math.round(totalDebts))}</span>
           </p>
         </div>
-        <div className="w-full bg-gray-100 rounded-full h-3 flex overflow-hidden">
-          {myPartners.map((p, i) => (
-            <div key={p.id} className="h-full border-l border-white/20 relative group" 
-                 style={{ width: `${p.profitPercentage}%`, backgroundColor: `hsl(${(i * 137.5) % 360}, 70%, 50%)` }}>
-              <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-10 left-1/2 -translate-x-1/2">
-                {p.name}: {p.profitPercentage}%
-              </div>
-            </div>
-          ))}
-          {totalPercentage < 100 && (
-            <div className="h-full bg-gray-200 cursor-not-allowed" style={{ width: `${100 - totalPercentage}%` }} title="النسبة غير الموزعة"></div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 bg-bunyan-50 rounded-2xl flex items-center justify-center shrink-0">
-            <Briefcase size={28} className="text-bunyan-600" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">عدد الشركاء المسجلين</p>
-            <p className="text-3xl font-black text-gray-900">{myPartners.length}</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0">
-            <PiggyBank size={28} className="text-blue-600" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">إجمالي رأس المال المُتشارك</p>
-            <p className="text-2xl font-black text-gray-900 font-currency">{formatCurrency(totalCapital)}</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
-          <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center shrink-0">
-            <TrendingUp size={28} className="text-emerald-600" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">إجمالي مستحقات الشركاء (أرباح)</p>
-            <p className="text-2xl font-black text-emerald-600 font-currency">{formatCurrency(totalDues)}</p>
-          </div>
-        </div>
-      </div>
-
-      {unallocatedProfit > 0 && user?.role === 'owner' && (
-        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-5 flex items-start sm:items-center justify-between gap-4 flex-col sm:flex-row">
-           <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                 <TrendingUp size={20} className="text-emerald-700"/>
-              </div>
-              <div>
-                <p className="font-bold text-emerald-900 text-base">دورة أرباح جديدة متاحة للتوزيع</p>
-                <p className="text-sm text-emerald-700 mt-0.5">يوجد <span className="font-black font-currency mx-1">{formatCurrency(unallocatedProfit)}</span> أرباح صافية لم يتم توزيعها على محافظ الشركاء بعد.</p>
-              </div>
-           </div>
-           <button onClick={handleDistributeProfits} className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors shadow-sm">تخريج وتوزيع الأرباح</button>
-        </div>
       )}
 
-      {totalDebts > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle size={20} className="text-red-600 mt-0.5" />
-          <div>
-            <p className="text-sm font-bold text-red-900">تنبيه بالديون المعلقة</p>
-            <p className="text-sm text-red-700 mt-1">يوجد إجمالي ديون مسجلة على الشركاء بقيمة <span className="font-mono font-bold font-currency">{formatCurrency(totalDebts)}</span>. يرجى تسويتها لاحقاً أو خصمها من الأرباح.</p>
+      {/* Profit Bar */}
+      {myPartners.length > 0 && (
+        <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+          <div className="flex justify-between items-center mb-2">
+            <p className="text-sm font-bold text-gray-700">توزيع نسب الأرباح</p>
+            <p className={`text-sm font-black ${
+              totalPercentage > 100 ? 'text-red-600' : totalPercentage === 100 ? 'text-emerald-600' : 'text-blue-600'
+            }`}>
+              {totalPercentage}% / المتبقي {Math.max(0, 100 - totalPercentage)}%
+            </p>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-3 flex overflow-hidden">
+            {myPartners.map((p, i) => (
+              <div key={p.id} className="h-full relative group border-l border-white/20"
+                style={{ width: `${p.profitPercentage}%`, backgroundColor: `hsl(${(i * 137.5) % 360}, 65%, 50%)` }}>
+                <div className="absolute bottom-full mb-1.5 hidden group-hover:block bg-gray-900
+                  text-white text-[10px] px-2 py-1 rounded-lg whitespace-nowrap z-10
+                  left-1/2 -translate-x-1/2">
+                  {p.name}: {p.profitPercentage}%
+                </div>
+              </div>
+            ))}
+            {totalPercentage < 100 && (
+              <div className="h-full bg-gray-200" style={{ width: `${100 - totalPercentage}%` }} />
+            )}
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-right">
-            <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4">الشريك</th>
-                <th className="px-6 py-4">حصة الربح</th>
-                <th className="px-6 py-4">رأس المال المدفوع</th>
-                <th className="px-6 py-4">المستحقات الحالية (أرباح)</th>
-                <th className="px-6 py-4">الديون (ذمة)</th>
-                <th className="px-6 py-4 text-center">الإجراءات</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {myPartners.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
-                  <td className="px-6 py-4">
-                    <p className="font-bold text-gray-900">{p.name}</p>
-                    <p className="text-xs text-gray-500 font-mono mt-0.5">{p.phone || 'بدون رقم'}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center justify-center bg-bunyan-50 text-bunyan-700 px-3 py-1 rounded-lg font-mono font-black border border-bunyan-100">
-                      {p.profitPercentage}%
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 font-semibold text-gray-900 font-currency">{formatCurrency(p.capitalContribution)}</td>
-                  <td className="px-6 py-4">
-                    <span className="font-bold text-emerald-600 font-currency">{formatCurrency(p.walletBalance)}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {p.debtBalance > 0 ? (
-                      <span className="text-sm font-bold text-red-600 font-currency bg-red-50 px-2 py-1 rounded-md">{formatCurrency(p.debtBalance)}</span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2 justify-center">
-                      <button onClick={() => setWithdrawId(p.id)} className="p-2 bg-gray-50 hover:bg-amber-50 rounded-lg text-gray-600 hover:text-amber-600 transition-colors shadow-sm" title="سحب أرباح"><HandCoins size={16} /></button>
-                      <button onClick={() => openEdit(p)} className="p-2 bg-gray-50 hover:bg-bunyan-50 rounded-lg text-gray-600 hover:text-bunyan-600 transition-colors shadow-sm" title="تعديل"><Edit2 size={16} /></button>
-                      <button onClick={() => setDeleteId(p.id)} className="p-2 bg-gray-50 hover:bg-red-50 rounded-lg text-gray-600 hover:text-red-600 transition-colors shadow-sm" title="حذف"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
+      {/* Partners Table */}
+      {myPartners.length === 0 ? (
+        <EmptyState
+          icon={<Handshake className="w-8 h-8 text-gray-400" />}
+          title="لا يوجد شركاء مسجلون"
+          description="أضف شريكك الأول لبدء توزيع الحصص والأرباح"
+        />
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-sm">
+              <thead className="bg-gray-50/70 border-b border-gray-100">
+                <tr className="text-xs text-gray-400">
+                  <th className="px-6 py-3.5 font-semibold">الشريك</th>
+                  <th className="px-6 py-3.5 font-semibold">الحصة</th>
+                  <th className="px-6 py-3.5 font-semibold">رأس المال</th>
+                  <th className="px-6 py-3.5 font-semibold text-emerald-600">المستحقات</th>
+                  <th className="px-6 py-3.5 font-semibold text-red-600">الديون</th>
+                  <th className="px-6 py-3.5 font-semibold text-center">إجراءات</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {myPartners.map(p => (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="font-bold text-gray-900">{p.name}</p>
+                      <p className="text-xs text-gray-400 font-mono">{p.phone || '—'}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="bg-bunyan-50 text-bunyan-700 border border-bunyan-100
+                        px-2.5 py-1 rounded-lg font-mono font-black text-xs">
+                        {p.profitPercentage}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-gray-900 font-mono text-xs">
+                      {formatCurrency(p.capitalContribution)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-emerald-700 font-black font-mono text-sm">
+                        {formatCurrency(p.walletBalance)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {p.debtBalance > 0 ? (
+                        <span className="text-red-700 font-bold bg-red-50 px-2 py-0.5 rounded text-xs font-mono">
+                          {formatCurrency(p.debtBalance)}
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        {/* Primary Action — سحب الأرباح */}
+                        <button onClick={() => setWithdrawId(p.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50
+                            text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg
+                            text-xs font-bold transition-colors">
+                          <HandCoins size={13} /> سحب
+                        </button>
+                        {/* Kebab Menu */}
+                        <div className="relative" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg
+                              hover:bg-gray-100 text-gray-400 transition-colors">
+                            <MoreVertical size={14} />
+                          </button>
+                          {openMenu === p.id && (
+                            <div className="absolute left-0 top-full mt-1 w-36 bg-white border
+                              border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
+                              <button onClick={() => { openEdit(p); setOpenMenu(null); }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm
+                                  text-gray-700 hover:bg-gray-50 text-right">
+                                <Edit2 size={13} /> تعديل
+                              </button>
+                              <button onClick={() => { setDeleteId(p.id); setOpenMenu(null); }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm
+                                  text-red-600 hover:bg-red-50 text-right">
+                                <Trash2 size={13} /> حذف
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        {myPartners.length === 0 && (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Handshake size={28} className="text-gray-400" />
+      )}
+
+      {/* Add / Edit SlideOver */}
+      <SlideOver isOpen={slideOpen} onClose={() => { setSlideOpen(false); resetForm(); }}
+        title={editingId ? 'تعديل بيانات الشريك' : 'إضافة شريك جديد'}>
+        <div className="space-y-5 p-1">
+          {/* Info */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">الاسم الكامل *</label>
+              <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                  focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+                placeholder="اسم الشريك" />
             </div>
-            <p className="text-base font-bold text-gray-900 mb-1">لا يوجد شركاء مسجلين</p>
-            <p className="text-sm text-gray-500">أضف شريكك الأول للبدء في توزيع الحصص والأرباح.</p>
-          </div>
-        )}
-      </div>
-
-      <SlideOver isOpen={slideOpen} onClose={() => { setSlideOpen(false); resetForm(); }} title={editingId ? 'تعديل بيانات الشريك' : 'إضافة شريك جديد'}>
-        <div className="space-y-6 pb-20">
-          
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 pb-2 border-b border-gray-200 mb-2">المعلومات الأساسية</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">الاسم الكامل *</label>
-                <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} 
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors" placeholder="فادي أحمد" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">رقم الهاتف *</label>
-                <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} dir="ltr" 
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors text-left" placeholder="09XXXXXXXX" />
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">رقم الهاتف</label>
+              <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
+                dir="ltr" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                  font-mono text-left focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+                placeholder="09XXXXXXXX" />
             </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">البريد الإلكتروني *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} dir="ltr"
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors text-left" placeholder="partner@domain.com" />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700 mb-1.5 flex justify-between">كلمة المرور (للدخول) <button onClick={generatePassword} className="text-bunyan-600 hover:text-bunyan-800 text-[10px]"><Key size={12} className="inline mr-1"/>توليد عشوائي</button></label>
-                <input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} dir="ltr"
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors text-left" placeholder="********" />
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">البريد الإلكتروني *</label>
+              <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
+                dir="ltr" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                  text-left focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+                placeholder="partner@domain.com" />
             </div>
-
-            <label className="flex items-center gap-2 cursor-pointer mt-2 text-sm">
-              <input type="checkbox" className="rounded text-bunyan-600 focus:ring-bunyan-500"
-                checked={form.isActive} onChange={e => setForm({...form, isActive: e.target.checked})} />
-              <span className={`font-bold ${form.isActive ? 'text-emerald-700' : 'text-gray-500'}`}>حالة الحساب: {form.isActive ? 'النشاط مفعّل' : 'مجمّد / متوقف'}</span>
-            </label>
-          </div>
-
-          {/* دور الشريك والصلاحيات */}
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-             <h3 className="text-sm font-bold text-gray-900 pb-2 border-b border-gray-200">دور الشريك في المنظومة (صلاحيات الدخول)</h3>
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-               <label className={`border rounded-xl p-3 cursor-pointer transition-all ${form.partnerRole === 'active_partner' ? 'bg-bunyan-50 border-bunyan-500 ring-1 ring-bunyan-500' : 'bg-white border-gray-200'}`}>
-                 <input type="radio" className="sr-only" checked={form.partnerRole === 'active_partner'} onChange={() => setForm({...form, partnerRole: 'active_partner'})} />
-                 <p className="font-bold text-sm text-gray-900 mb-1">شريك تشغيلي</p>
-                 <p className="text-[10px] text-gray-500 leading-relaxed">صلاحيات كاملة للمنظومة (باستثناء الإعدادات والموارد البشرية)</p>
-               </label>
-               <label className={`border rounded-xl p-3 cursor-pointer transition-all ${form.partnerRole === 'silent_investor' ? 'bg-bunyan-50 border-bunyan-500 ring-1 ring-bunyan-500' : 'bg-white border-gray-200'}`}>
-                 <input type="radio" className="sr-only" checked={form.partnerRole === 'silent_investor'} onChange={() => setForm({...form, partnerRole: 'silent_investor'})} />
-                 <p className="font-bold text-sm text-gray-900 mb-1">مستثمر صامت</p>
-                 <p className="text-[10px] text-gray-500 leading-relaxed">قراءة لوحة القيادة وتقارير الأرباح فقط (بدون أي عمليات)</p>
-               </label>
-               <label className={`border rounded-xl p-3 cursor-pointer transition-all ${form.partnerRole === 'custom' ? 'bg-bunyan-50 border-bunyan-500 ring-1 ring-bunyan-500' : 'bg-white border-gray-200'}`}>
-                 <input type="radio" className="sr-only" checked={form.partnerRole === 'custom'} onChange={() => setForm({...form, partnerRole: 'custom'})} />
-                 <p className="font-bold text-sm text-gray-900 mb-1">مُخصص</p>
-                 <p className="text-[10px] text-gray-500 leading-relaxed">تحديد صلاحيات دقيقة جداً لكل وحدة على حدة</p>
-               </label>
-             </div>
-
-             {form.partnerRole === 'custom' && (
-               <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                 <label className="flex items-center gap-2 cursor-pointer">
-                   {form.customPerms.orders ? <CheckSquare className="text-bunyan-600" size={16}/> : <Square className="text-gray-400" size={16}/>}
-                   <span className="text-gray-700">إدارة الطلبيات</span>
-                   <input type="checkbox" className="sr-only" checked={form.customPerms.orders} onChange={e => setForm({...form, customPerms: {...form.customPerms, orders: e.target.checked}})} />
-                 </label>
-                 <label className="flex items-center gap-2 cursor-pointer">
-                   {form.customPerms.inventory ? <CheckSquare className="text-bunyan-600" size={16}/> : <Square className="text-gray-400" size={16}/>}
-                   <span className="text-gray-700">إدارة المخزون</span>
-                   <input type="checkbox" className="sr-only" checked={form.customPerms.inventory} onChange={e => setForm({...form, customPerms: {...form.customPerms, inventory: e.target.checked}})} />
-                 </label>
-                 <label className="flex items-center gap-2 cursor-pointer">
-                   {form.customPerms.delivery ? <CheckSquare className="text-bunyan-600" size={16}/> : <Square className="text-gray-400" size={16}/>}
-                   <span className="text-gray-700">شركات التوصيل</span>
-                   <input type="checkbox" className="sr-only" checked={form.customPerms.delivery} onChange={e => setForm({...form, customPerms: {...form.customPerms, delivery: e.target.checked}})} />
-                 </label>
-                 <label className="flex items-center gap-2 cursor-pointer">
-                   {form.customPerms.treasury ? <CheckSquare className="text-bunyan-600" size={16}/> : <Square className="text-gray-400" size={16}/>}
-                   <span className="text-gray-700">قراءة الخزينة</span>
-                   <input type="checkbox" className="sr-only" checked={form.customPerms.treasury} onChange={e => setForm({...form, customPerms: {...form.customPerms, treasury: e.target.checked}})} />
-                 </label>
-                 <label className="flex items-center gap-2 cursor-pointer">
-                   {form.customPerms.dashboard ? <CheckSquare className="text-bunyan-600" size={16}/> : <Square className="text-gray-400" size={16}/>}
-                   <span className="text-gray-700">لوحة المتابعة</span>
-                   <input type="checkbox" className="sr-only" checked={form.customPerms.dashboard} onChange={e => setForm({...form, customPerms: {...form.customPerms, dashboard: e.target.checked}})} />
-                 </label>
-               </div>
-             )}
-          </div>
-
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 pb-2 border-b border-gray-200">البيانات المالية المشتركة</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-gray-700 mb-1.5 flex justify-between">
-                  <span>حجم رأس المال المدفوع من قبله</span>
-                </label>
-                <div className="relative">
-                  <input type="number" min={0} value={form.capitalContribution} onChange={(e) => setForm({ ...form, capitalContribution: Number(e.target.value) })} 
-                    className="w-full pr-4 pl-12 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors" />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">د.ل</span>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700 mb-1.5 flex justify-between">
-                  <span>نسبة الربح المستحقة له (%) *</span>
-                  <span className={`text-xs font-black ${totalPercentage - (editingId ? (myPartners.find(p => p.id === editingId)?.profitPercentage || 0) : 0) + form.profitPercentage > 100 ? 'text-red-500' : 'text-emerald-600'}`}>
-                    المتبقي إجمالاً: {Math.max(0, 100 - (totalPercentage - (editingId ? (myPartners.find(p => p.id === editingId)?.profitPercentage || 0) : 0) + form.profitPercentage))}%
-                  </span>
-                </label>
-                <div className="relative">
-                  <input type="number" min={0} max={100} value={form.profitPercentage} onChange={(e) => setForm({ ...form, profitPercentage: Number(e.target.value) })} 
-                    className="w-full pr-4 pl-10 py-2 bg-white border border-gray-200 rounded-xl text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors text-bunyan-700" />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">%</span>
-                </div>
-              </div>
+            <div>
+              <label className="flex justify-between text-xs font-bold text-gray-700 mb-1.5">
+                <span>كلمة المرور</span>
+                <button onClick={generatePassword} className="text-bunyan-600 text-[10px] flex items-center gap-1">
+                  <Key size={10} /> توليد
+                </button>
+              </label>
+              <input type="text" value={form.password} onChange={e => setForm({...form, password: e.target.value})}
+                dir="ltr" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                  font-mono text-left focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+                placeholder="*******" />
             </div>
           </div>
 
-          <div className="fixed bottom-0 left-0 w-full sm:w-[500px] p-4 bg-white border-t border-gray-100 z-10 hidden sm:block">
-            <button onClick={handleSave} className="w-full py-3 bg-bunyan-600 text-white font-bold rounded-xl hover:bg-bunyan-700 transition-all text-sm shadow-md">
-              {editingId ? 'حفظ التعديلات' : 'حفظ وإضافة الشريك'}
+          {/* حالة الحساب — Toggle Switch */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-200">
+            <span className="text-sm font-bold text-gray-700">حالة الحساب</span>
+            <button type="button" onClick={() => setForm({...form, isActive: !form.isActive})}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                form.isActive ? 'bg-emerald-500' : 'bg-gray-300'
+              }`}>
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                form.isActive ? 'translate-x-4' : 'translate-x-1'
+              }`} />
             </button>
           </div>
-          <button onClick={handleSave} className="sm:hidden w-full py-3 bg-bunyan-600 text-white font-bold rounded-xl hover:bg-bunyan-700 transition-all text-sm shadow-md mt-6">
-            {editingId ? 'حفظ التعديلات' : 'حفظ وإضافة الشريك'}
+
+          {/* دور الشريك */}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-2">دور الشريك</label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                ['active_partner', 'تشغيلي', 'صلاحيات كاملة'],
+                ['silent_investor', 'صامت', 'تقارير فقط'],
+                ['custom', 'مُخصص', 'تحديد يدوي'],
+              ] as const).map(([v, l, desc]) => (
+                <button key={v} type="button" onClick={() => setForm({...form, partnerRole: v})}
+                  className={`text-right p-2.5 rounded-xl border-2 transition-all ${
+                    form.partnerRole === v
+                      ? 'border-bunyan-500 bg-bunyan-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}>
+                  <p className="font-bold text-xs text-gray-900 mb-0.5">{l}</p>
+                  <p className="text-[9px] text-gray-500">{desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Permissions — Toggle Switches */}
+          {form.partnerRole === 'custom' && (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1">
+              <p className="text-xs font-bold text-gray-700 mb-2">الصلاحيات</p>
+              {[
+                ['orders', 'إدارة الطلبيات'],
+                ['inventory', 'إدارة المخزون'],
+                ['delivery', 'شركات التوصيل'],
+                ['treasury', 'قراءة الخزينة'],
+                ['dashboard', 'لوحة المتابعة'],
+              ].map(([k, lbl]) => (
+                <ToggleSwitch
+                  key={k} label={lbl}
+                  checked={form.customPerms[k as keyof typeof form.customPerms]}
+                  onChange={v => setForm({...form, customPerms: {...form.customPerms, [k]: v}})}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Financial */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">رأس المال المدفوع</label>
+              <div className="relative">
+                <input type="number" min={0} value={form.capitalContribution}
+                  onChange={e => setForm({...form, capitalContribution: Number(e.target.value)})}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono
+                    focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 pl-12" />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-bold">د.ل</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">نسبة الربح % *</label>
+              <div className="relative">
+                <input type="number" min={0} max={100} value={form.profitPercentage}
+                  onChange={e => setForm({...form, profitPercentage: Number(e.target.value)})}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono
+                    font-black text-bunyan-700 focus:outline-none focus:ring-2
+                    focus:ring-bunyan-500/30 pl-10" />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-bold">%</span>
+              </div>
+            </div>
+          </div>
+
+          <button onClick={handleSave}
+            className="w-full py-3 bg-bunyan-600 hover:bg-bunyan-700 text-white rounded-xl
+              font-bold text-sm transition-all shadow-sm">
+            {editingId ? '💾 حفظ التعديلات' : '+ حفظ وإضافة الشريك'}
           </button>
         </div>
       </SlideOver>
 
-      {/* نافذة سحب الأرباح */}
-      <SlideOver isOpen={!!withdrawId} onClose={() => { setWithdrawId(null); setWithdrawAmount(''); }} title={`سحب أرباح: ${myPartners.find(p => p.id === withdrawId)?.name || ''}`}>
-        <div className="space-y-6 pb-20 p-4">
-          <div className="bg-amber-50 rounded-xl p-4 border border-amber-100 flex items-start gap-3">
-             <AlertCircle size={20} className="text-amber-600 mt-0.5 shrink-0" />
-             <div>
-               <p className="text-sm font-bold text-amber-900">سحب من المحفظة</p>
-               <p className="text-xs text-amber-700 leading-relaxed mt-1">
-                 سيتم خصم هذا المبلغ من (الرصيد المتاح للسحب) للشريك المحدد، وسيُسجل في "الخزينة" كحركة مصروفات (توزيع أرباح). تأكد من وجود نقدية كافية في درج المتجر الفعلي.
-               </p>
-             </div>
+      {/* Withdraw SlideOver */}
+      <SlideOver
+        isOpen={!!withdrawId}
+        onClose={() => { setWithdrawId(null); setWithdrawAmount(''); }}
+        title={`سحب أرباح — ${myPartners.find(p => p.id === withdrawId)?.name ?? ''}`}
+      >
+        <div className="space-y-5 p-1">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+            <AlertCircle size={18} className="text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-700 leading-relaxed">
+              سيتم خصم المبلغ من محفظة الشريك وتسجيله في الخزينة كمصروف توزيع أرباح.
+            </p>
           </div>
-          
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-            
-            {myPartners.find(p => p.id === withdrawId)?.debtBalance ? (
-              <div className="bg-red-50 border border-red-200 p-3 rounded-xl mb-4">
-                <p className="text-sm font-bold text-red-900 mb-2">تنبيه: على هذا الشريك ديون متأخرة بقيمة {formatCurrency(myPartners.find(p => p.id === withdrawId)?.debtBalance || 0)}</p>
-                <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold text-red-800">
-                  <input type="checkbox" className="rounded border-red-300 text-red-600 focus:ring-red-500"
-                    checked={withdrawDeductDebt} onChange={e => setWithdrawDeductDebt(e.target.checked)} />
-                  خصم الدين من المبلغ المسحوب وتصفريته
-                </label>
-              </div>
-            ) : null}
 
-            <div>
-              <label className="flex text-xs font-bold text-gray-700 mb-1.5 justify-between">
-                <span>المبلغ المراد سحبه *</span>
-                <span className="text-amber-600">المتاح للسحب: {formatCurrency(myPartners.find(p => p.id === withdrawId)?.walletBalance || 0)}</span>
-              </label>
-              <div className="flex items-center gap-2 relative">
-                <input type="number" min={1} max={myPartners.find(p => p.id === withdrawId)?.walletBalance} 
-                  value={withdrawAmount} onChange={(e) => setWithdrawAmount(Number(e.target.value))} 
-                  className="w-full pr-4 pl-12 py-3 bg-white border border-gray-200 rounded-xl text-base font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors" placeholder="0.00" />
-                <span className="absolute left-[80px] top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">د.ل</span>
-                
-                <button onClick={() => setWithdrawAmount(myPartners.find(p => p.id === withdrawId)?.walletBalance || 0)}
-                  className="shrink-0 px-4 py-3 bg-bunyan-50 text-bunyan-700 font-bold rounded-xl whitespace-nowrap text-sm border border-bunyan-200 hover:bg-bunyan-100 transition-colors">
-                  سحب الكل
+          {myPartners.find(p => p.id === withdrawId)?.debtBalance ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-sm font-bold text-red-900 mb-2">
+                دين معلق: {formatCurrency(myPartners.find(p => p.id === withdrawId)?.debtBalance || 0)}
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-red-800">خصم الدين من المبلغ المسحوب</span>
+                <button type="button" onClick={() => setWithdrawDeductDebt(!withdrawDeductDebt)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    withdrawDeductDebt ? 'bg-red-500' : 'bg-gray-300'
+                  }`}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                    withdrawDeductDebt ? 'translate-x-4' : 'translate-x-1'
+                  }`} />
                 </button>
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">تاريخ الحركة</label>
-                <input type="date" value={withdrawDate} onChange={(e) => setWithdrawDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors" />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">بيان / ملاحظة على السحب</label>
-                <textarea rows={2} value={withdrawNote} onChange={(e) => setWithdrawNote(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-colors resize-none" placeholder="اكتب ملاحظة كمرجع..." />
-              </div>
-            </div>
+          ) : null}
 
-            <button onClick={handleWithdraw} className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-all text-sm shadow-md mt-4 flex justify-center items-center gap-2">
-              <HandCoins size={18} /> تأكيد السحب {withdrawDeductDebt ? 'وخصم الدين' : ''}
+          <div>
+            <label className="flex text-xs font-bold text-gray-700 mb-1.5 justify-between">
+              <span>المبلغ المراد سحبه *</span>
+              <span className="text-amber-600 font-mono">
+                المتاح: {formatCurrency(myPartners.find(p => p.id === withdrawId)?.walletBalance || 0)}
+              </span>
+            </label>
+            <div className="relative">
+              <input type="number" min={1}
+                value={withdrawAmount}
+                onChange={e => setWithdrawAmount(Number(e.target.value))}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg font-mono
+                  font-black text-left focus:outline-none focus:ring-2 focus:ring-amber-500/30
+                  focus:border-amber-400 pl-14"
+                placeholder="0" dir="ltr" />
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                د.ل
+              </span>
+            </div>
+            <button
+              onClick={() => setWithdrawAmount(myPartners.find(p => p.id === withdrawId)?.walletBalance || 0)}
+              className="mt-2 w-full py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border
+                border-amber-200 rounded-xl text-xs font-bold transition-colors">
+              سحب الكل
             </button>
           </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5">تاريخ الحركة</label>
+            <input type="date" value={withdrawDate} onChange={e => setWithdrawDate(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
+                focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5">ملاحظة (اختياري)</label>
+            <textarea rows={2} value={withdrawNote} onChange={e => setWithdrawNote(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none
+                focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+              placeholder="اكتب ملاحظة كمرجع..." />
+          </div>
+
+          <button onClick={handleWithdraw}
+            className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl
+              font-bold text-sm transition-all flex items-center justify-center gap-2">
+            <HandCoins size={16} /> تأكيد السحب {withdrawDeductDebt ? 'وخصم الدين' : ''}
+          </button>
         </div>
       </SlideOver>
 
-      <ConfirmDialog isOpen={!!deleteId} onCancel={() => setDeleteId(null)} onConfirm={() => { if (deleteId) { const res = deletePartner(deleteId); setDeleteId(null); if (res.success) showToast('تم حذف الشريك بنجاح', 'success'); else showToast(res.error || 'لا يمكن الحذف', 'error'); } }} title="حذف الشريك نهائياً" message="هل أنت متأكد من حذف هذا الشريك؟ سيتم حذف بياناته لكن الحركات المتعلقة قد تبقى في السجل للمحاسبة." variant="danger" />
+      <ConfirmDialog
+        isOpen={!!deleteId}
+        onCancel={() => setDeleteId(null)}
+        onConfirm={async () => {
+          if (deleteId) {
+            const res = await deletePartner(deleteId);
+            setDeleteId(null);
+            if (res.success) showToast('تم حذف الشريك', 'success');
+            else showToast(res.error || 'لا يمكن الحذف', 'error');
+          }
+        }}
+        title="حذف الشريك نهائياً"
+        message="هل أنت متأكد؟ سيتم حذف بيانات الشريك."
+        variant="danger"
+      />
     </div>
   );
 }

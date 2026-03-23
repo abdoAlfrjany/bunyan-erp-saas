@@ -33,6 +33,9 @@ const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 export class MockShippingAdapter implements IDeliveryProvider {
   readonly providerName = 'mock';
 
+  setCredentials(_email: string, _passwordHash: string) {
+    // Mock adapter doesn't need real credentials
+  }
   async authenticate(credentials: { email: string; password: string }) {
     await delay(500);
     if (credentials.email && credentials.password) {
@@ -77,9 +80,51 @@ export class MockShippingAdapter implements IDeliveryProvider {
     return { success: true };
   }
 
-  async recallShipment(_id: number, _token: string) {
+  async recallShipment(_id: number, _token: string, _reason?: string) {
     await delay(400);
     return { success: true };
+  }
+
+  async getSettlements(_token: string, _status?: string): Promise<import('../types').VanexSettlement[]> {
+    await delay(400);
+    return [
+      {
+        id: 'vs-mock-1',
+        tenantId: '',
+        vanexSettlementId: 9001,
+        settlementNumber: 'MCK-SET-001',
+        totalAmount: 5000,
+        deliveryFees: 300,
+        bankCommission: 0,
+        netAmount: 4700,
+        paymentMethod: 'cash',
+        targetAccountType: 'cash_in_hand',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        packageCount: 10,
+        courierCompanyId: '',
+      }
+    ];
+  }
+
+  async getSettlementDetails(_id: number, _token: string): Promise<import('../types').VanexSettlement | null> {
+    await delay(300);
+    return {
+      id: 'vs-mock-detail-1',
+      tenantId: '',
+      vanexSettlementId: _id,
+      settlementNumber: `MCK-SET-${_id}`,
+      totalAmount: 5000,
+      deliveryFees: 300,
+      bankCommission: 0,
+      netAmount: 4700,
+      paymentMethod: 'cash',
+      targetAccountType: 'cash_in_hand',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      packageCount: 10,
+      courierCompanyId: '',
+    };
   }
 }
 

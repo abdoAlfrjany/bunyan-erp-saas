@@ -5,6 +5,9 @@
 export { StatCard } from './StatCard';
 export { ModuleCard } from './ModuleCard';
 export { StatusBadge } from './StatusBadge';
+export type { BadgeVariant } from './StatusBadge';
+export { RadioCard } from './RadioCard';
+export { Toggle } from './Toggle';
 export { SkeletonLine, SkeletonCard, SkeletonTable, SkeletonStats } from './Skeleton';
 export { EmptyState } from './EmptyState';
 export { SlideOver } from './SlideOver';

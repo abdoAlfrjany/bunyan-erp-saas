@@ -1,14 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useState, useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useDebtsQuery, useCustomersQuery, useEmployeesQuery, usePartnersQuery } from '@/core/db/hooks/useDebts';
+import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
+import { useQueryClient } from '@tanstack/react-query';
+import { useGetForTenant, useAddDebt, useUpdateDebt } from '@/core/db/hooks';
 import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
 import { FileText, Plus, CheckCircle2, Banknote, CalendarDays, Edit2, AlertTriangle, Eye, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
-import type { Debt } from '@/core/db/seed';
+import type { Debt } from '@/core/types';
 
 const CATEGORY_LABELS: Record<string, string> = {
   custody: 'عهدة', partner_advance: 'سحبة شريك', employee_advance: 'سلفة موظف',
@@ -16,16 +19,27 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function DebtsPage() {
-  const { user } = useAuthStore();
-  const { debts, treasury, customers, employees, partners, getForTenant, payDebt, addDebt, updateDebt, addTransaction } = useDataStore(); 
-  const { showToast } = useToast();
+  const user = useUser();
   const tid = user?.tenantId || '';
+  const queryClient = useQueryClient();
+
+  const { data: debts = [], isLoading: isDebtsLoading } = useDebtsQuery(tid);
+  const { data: treasuryData } = useTreasuryQuery(tid);
+  const treasury = treasuryData?.accounts || [];
+  const { data: customers = [] } = useCustomersQuery(tid);
+  const { data: employees = [] } = useEmployeesQuery(tid);
+  const { data: partners = [] } = usePartnersQuery(tid);
+
+  const getForTenant = useGetForTenant();
+  const addDebt = useAddDebt();
+  const updateDebt = useUpdateDebt();
+  const { showToast } = useToast();
   
-  const myDebts = getForTenant(debts, tid);
-  const myTreasury = getForTenant(treasury, tid);
-  const myCustomers = getForTenant(customers, tid);
-  const myEmployees = getForTenant(employees, tid).filter(e => e.isActive);
-  const myPartners = getForTenant(partners, tid).filter(p => p.isActive);
+  const myDebts = debts;
+  const myTreasury = treasury;
+  const myCustomers = customers;
+  const myEmployees = employees.filter(e => e.isActive);
+  const myPartners = partners.filter(p => p.isActive);
 
   const cashAccount = myTreasury.find(a => a.accountType === 'cash_in_hand');
   
@@ -78,21 +92,32 @@ export default function DebtsPage() {
 
     const isIncome = debt ? ['customer', 'employee_advance', 'partner_advance', 'custody'].includes(debt.debtCategory) : false;
 
-    if (!isIncome && debt && cashAccount) {
-      const logicRulesStr = localStorage.getItem('bunyan-logic-rules');
-      const allowNegativeTreasury = logicRulesStr ? JSON.parse(logicRulesStr)?.state?.rules?.allowNegativeTreasury : false;
+    // استخدام الـ API الجديد لعملية ذرية (Atomic)
+    fetch('/api/debts/pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        debtId: paySlide,
+        amount: amt,
+        tenantId: tid,
+        accountId: cashAccount?.id,
+        description: `سداد دين: ${debt?.linkedEntityName} ${debt?.sourceReference ? `(${debt?.sourceReference})` : ''}`,
+        createdBy: user?.fullName || user?.email
+      })
+    })
+    .then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل سداد الدين');
       
-      if (!allowNegativeTreasury && amt > cashAccount.balance) {
-        showToast(`رصيد الخزينة غير كافٍ — المتاح: ${formatCurrency(cashAccount.balance)}`, 'error');
-        return;
-      }
-    }
-
-    payDebt(paySlide, amt);
-
-    showToast(`تم سداد ${formatCurrency(amt)} بنجاح`, 'success');
-    setPaySlide(null);
-    setPayAmount('');
+      showToast(`تم سداد ${formatCurrency(amt)} بنجاح`, 'success');
+      queryClient.invalidateQueries({ queryKey: ['debts', tid] });
+      queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
+      setPaySlide(null);
+      setPayAmount('');
+    })
+    .catch((err) => {
+      showToast(err.message || 'حدث خطأ أثناء السداد', 'error');
+    });
   };
 
   const handleSaveDebt = () => {
@@ -108,8 +133,10 @@ export default function DebtsPage() {
          showToast(`لا يمكن تقليل قيمة الدين لأن المبلغ المسدد (${formatCurrency(existing.paidAmount)}) يتجاوز القيمة الجديدة`, 'error');
          return;
       }
-      updateDebt(editingDebtId, { ...form, amount: amt });
-      showToast('تم تحديث بيانات الدين بنجاح', 'success');
+      updateDebt(editingDebtId, { ...form, amount: amt }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['debts', tid] });
+        showToast('تم تحديث بيانات الدين بنجاح', 'success');
+      });
     } else {
       addDebt({
         id: `dbt-${Date.now()}`, tenantId: tid,
@@ -118,8 +145,10 @@ export default function DebtsPage() {
         amount: amt, dueDate: form.dueDate, description: form.description, sourceReference: form.sourceReference,
         paidAmount: 0, status: 'active', paymentHistory: [],
         createdAt: new Date().toISOString().split('T')[0],
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['debts', tid] });
+        showToast('تم إضافة قيد الدين بنجاح', 'success');
       });
-      showToast('تم إضافة قيد الدين بنجاح', 'success');
     }
     
     setAddSlide(false);
@@ -149,11 +178,11 @@ export default function DebtsPage() {
     <div className="space-y-6 animate-fade-in pb-10">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
             <FileText size={24} className="text-bunyan-600" />
             سجل الديون والذمم
           </h1>
-          <p className="text-sm text-gray-500 mt-1">تتبع الديون الخارجية (موردين) والداخلية (سلفيات موظفين وشركاء)</p>
+          <p className="text-sm text-gray-500 mt-1">تتبع الديون الخارجية والداخلية</p>
         </div>
         <button onClick={() => { resetForm(); setAddSlide(true); }} 
           className="flex items-center gap-2 px-4 py-2 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50">
@@ -199,10 +228,12 @@ export default function DebtsPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200 pb-px overflow-x-auto">
+      <div className="flex bg-gray-100 p-1 rounded-xl gap-1 w-fit">
         {(['all', 'internal', 'external'] as const).map((f) => (
           <button key={f} onClick={() => setFilter(f)} 
-            className={`px-5 py-3 rounded-t-xl text-sm font-bold transition-all whitespace-nowrap ${filter === f ? 'bg-bunyan-600 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'}`}>
+            className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
+              filter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
             {f === 'all' ? 'جميع الديون والذمم' : f === 'internal' ? 'داخلية (سلف/عهد)' : 'خارجية (موردين ومبيعات)'}
           </button>
         ))}
@@ -274,7 +305,7 @@ export default function DebtsPage() {
               }) : (
                 <tr>
                   <td colSpan={8} className="text-center py-16">
-                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <div className="w-16 h-16 bg-gray-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-gray-100 shadow-sm">
                       <FileText size={28} className="text-gray-400" />
                     </div>
                     <p className="text-base font-bold text-gray-900 mb-1">لا توجد ديون مطابقة</p>
@@ -486,8 +517,8 @@ export default function DebtsPage() {
                            <th className="px-4 py-3 font-bold text-gray-600">المبلغ المسدد</th>
                          </tr>
                        </thead>
-                       <tbody className="divide-y divide-gray-100">
-                         {historySlide.paymentHistory.map((ph, idx) => (
+                        <tbody className="divide-y divide-gray-100">
+                          {(historySlide.paymentHistory as any[]).map((ph, idx) => (
                            <tr key={idx} className="hover:bg-gray-50 transition-colors">
                              <td className="px-4 py-3 text-gray-500 font-mono text-xs">{formatDate(ph.date)}</td>
                              <td className="px-4 py-3 text-emerald-600 font-black font-currency">{formatCurrency(ph.amount)}</td>

@@ -1,0 +1,363 @@
+--- tenants ---
+{
+  "id": {
+    "default": "gen_random_uuid()",
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "name": {
+    "format": "text",
+    "type": "string"
+  },
+  "owner_email": {
+    "format": "text",
+    "type": "string"
+  },
+  "owner_name": {
+    "format": "text",
+    "type": "string"
+  },
+  "owner_phone": {
+    "format": "text",
+    "type": "string"
+  },
+  "plan": {
+    "default": "trial",
+    "format": "text",
+    "type": "string"
+  },
+  "plan_expires_at": {
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "is_active": {
+    "default": true,
+    "format": "boolean",
+    "type": "boolean"
+  },
+  "city": {
+    "default": "",
+    "format": "text",
+    "type": "string"
+  },
+  "billing_model": {
+    "default": "post_paid",
+    "format": "text",
+    "type": "string"
+  },
+  "website": {
+    "format": "text",
+    "type": "string"
+  },
+  "categories": {
+    "format": "text[]",
+    "items": {
+      "type": "string"
+    },
+    "type": "array"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "updated_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  }
+}
+--- profiles ---
+{
+  "id": {
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "tenant_id": {
+    "description": "Note:\nThis is a Foreign Key to `tenants.id`.<fk table='tenants' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "full_name": {
+    "format": "text",
+    "type": "string"
+  },
+  "email": {
+    "format": "text",
+    "type": "string"
+  },
+  "role": {
+    "default": "employee",
+    "format": "text",
+    "type": "string"
+  },
+  "permissions": {
+    "format": "jsonb"
+  },
+  "phone": {
+    "format": "text",
+    "type": "string"
+  },
+  "is_active": {
+    "default": true,
+    "format": "boolean",
+    "type": "boolean"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "updated_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  }
+}
+--- couriers ---
+{
+  "id": {
+    "default": "gen_random_uuid()",
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "tenant_id": {
+    "description": "Note:\nThis is a Foreign Key to `tenants.id`.<fk table='tenants' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "name": {
+    "format": "text",
+    "type": "string"
+  },
+  "phone": {
+    "format": "text",
+    "type": "string"
+  },
+  "tracking_url": {
+    "format": "text",
+    "type": "string"
+  },
+  "is_active": {
+    "default": true,
+    "format": "boolean",
+    "type": "boolean"
+  },
+  "is_internal": {
+    "default": false,
+    "format": "boolean",
+    "type": "boolean"
+  },
+  "provider": {
+    "format": "text",
+    "type": "string"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "short_code": {
+    "format": "text",
+    "type": "string"
+  },
+  "merchant_code": {
+    "format": "text",
+    "type": "string"
+  },
+  "contact_phone": {
+    "format": "text",
+    "type": "string"
+  },
+  "contact_person": {
+    "format": "text",
+    "type": "string"
+  },
+  "default_delivery_fee": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "api_provider": {
+    "default": "none",
+    "format": "text",
+    "type": "string"
+  },
+  "is_api_connected": {
+    "default": false,
+    "format": "boolean",
+    "type": "boolean"
+  },
+  "api_credentials": {
+    "format": "jsonb"
+  },
+  "pricing_zones": {
+    "format": "jsonb"
+  },
+  "cities": {
+    "format": "text[]",
+    "items": {
+      "type": "string"
+    },
+    "type": "array"
+  }
+}
+--- treasury_accounts ---
+{
+  "id": {
+    "default": "gen_random_uuid()",
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "tenant_id": {
+    "description": "Note:\nThis is a Foreign Key to `tenants.id`.<fk table='tenants' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "account_name": {
+    "format": "text",
+    "type": "string"
+  },
+  "account_type": {
+    "format": "text",
+    "type": "string"
+  },
+  "balance": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "linked_courier_id": {
+    "format": "text",
+    "type": "string"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  }
+}
+--- vanex_settlements ---
+{
+  "id": {
+    "default": "gen_random_uuid()",
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "tenant_id": {
+    "description": "Note:\nThis is a Foreign Key to `tenants.id`.<fk table='tenants' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "vanex_settlement_id": {
+    "format": "integer",
+    "type": "integer"
+  },
+  "settlement_number": {
+    "format": "text",
+    "type": "string"
+  },
+  "total_amount": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "delivery_fees": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "bank_commission": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "net_amount": {
+    "default": 0,
+    "format": "numeric",
+    "type": "number"
+  },
+  "payment_method": {
+    "format": "text",
+    "type": "string"
+  },
+  "target_account_type": {
+    "format": "text",
+    "type": "string"
+  },
+  "status": {
+    "default": "pending",
+    "format": "text",
+    "type": "string"
+  },
+  "applied_at": {
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "package_count": {
+    "default": 0,
+    "format": "integer",
+    "type": "integer"
+  },
+  "courier_company_id": {
+    "description": "Note:\nThis is a Foreign Key to `couriers.id`.<fk table='couriers' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  }
+}
+--- treasury_transactions ---
+{
+  "id": {
+    "default": "gen_random_uuid()",
+    "description": "Note:\nThis is a Primary Key.<pk/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "tenant_id": {
+    "description": "Note:\nThis is a Foreign Key to `tenants.id`.<fk table='tenants' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "account_id": {
+    "description": "Note:\nThis is a Foreign Key to `treasury_accounts.id`.<fk table='treasury_accounts' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  },
+  "transaction_type": {
+    "format": "text",
+    "type": "string"
+  },
+  "amount": {
+    "format": "numeric",
+    "type": "number"
+  },
+  "description": {
+    "format": "text",
+    "type": "string"
+  },
+  "transaction_date": {
+    "default": "CURRENT_DATE",
+    "format": "date",
+    "type": "string"
+  },
+  "created_at": {
+    "default": "now()",
+    "format": "timestamp with time zone",
+    "type": "string"
+  },
+  "created_by": {
+    "description": "Note:\nThis is a Foreign Key to `profiles.id`.<fk table='profiles' column='id'/>",
+    "format": "uuid",
+    "type": "string"
+  }
+}

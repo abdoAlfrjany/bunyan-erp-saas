@@ -1,6 +1,6 @@
 // src/app/register/page.tsx
-// الوظيفة: صفحة تسجيل متجر جديد — يُنشئ tenant فعلي + seed أساسي
-// المرجع: 1_SYSTEM_RULES.md — عند إنشاء tenant يتم تشغيل seed_tenant()
+// الوظيفة: صفحة تسجيل متجر جديد — يُنشئ tenant فعلي + حساب Supabase Auth حقيقي
+// المرجع: 1_SYSTEM_RULES.md — Full Supabase Auth Integration
 
 'use client';
 
@@ -8,14 +8,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
 import { Eye, EyeOff, UserPlus, Loader2, ArrowRight, Store } from 'lucide-react';
-import { BunyanLogo } from '@/shared/components/ui/BunyanLogo';
+import { Logo } from '@/shared/components/ui/Logo';
 
 export default function RegisterPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
-  const { addTenant } = useDataStore();
 
   const [formData, setFormData] = useState({
     storeName: '', ownerName: '', email: '', phone: '', city: '',
@@ -49,41 +47,56 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      const tenantId = `tenant-${Date.now()}`;
-
-      // إضافة tenant للـ store مع seed data أساسية
-      addTenant({
-        id: tenantId,
-        name: formData.storeName,
-        ownerName: formData.ownerName,
-        ownerEmail: formData.email.toLowerCase(),
-        ownerPhone: formData.phone || '0900000000',
-        city: formData.city || 'طرابلس',
-        plan: 'trial',
-        planExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        isActive: true,
-        billingModel: 'post_paid',
-        createdAt: new Date().toISOString().split('T')[0],
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email.toLowerCase().trim(),
+          password: formData.password,
+          storeName: formData.storeName,
+          ownerName: formData.ownerName,
+          phone: formData.phone || null,
+          city: formData.city || 'طرابلس',
+        }),
       });
 
-      const newUser = {
-        id: `user-${tenantId}`,
-        tenantId,
+      const result = await res.json();
+
+      if (!res.ok || !result.success) {
+        setError(result.error || 'فشل إنشاء الحساب — حاول مرة أخرى');
+        setIsLoading(false);
+        return;
+      }
+
+      const { createClient } = await import('@/core/db/supabase');
+      const supabase = createClient();
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email.toLowerCase().trim(),
+        password: formData.password,
+      });
+
+      if (signInError) {
+        setError('تم إنشاء الحساب! يرجى تسجيل الدخول.');
+        router.push('/login');
+        return;
+      }
+
+      setUser({
+        id: result.userId,
+        tenantId: result.tenantId,
         fullName: formData.ownerName,
         phone: formData.phone || null,
-        role: 'owner' as const,
+        role: 'owner',
         isActive: true,
         email: formData.email,
         tenantName: formData.storeName,
-      };
+        permissions: result.ownerPermissions,
+      });
 
-      localStorage.setItem('erp_user', JSON.stringify(newUser));
-      setUser(newUser);
       router.push('/dashboard');
-    } catch {
-      setError('حدث خطأ أثناء التسجيل — حاول مرة أخرى');
+    } catch (err: any) {
+      setError(err?.message || 'حدث خطأ أثناء التسجيل — حاول مرة أخرى');
     } finally {
       setIsLoading(false);
     }
@@ -99,7 +112,7 @@ export default function RegisterPage() {
       <div className="relative w-full max-w-lg animate-fade-in">
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-20 h-20 mb-3">
-            <BunyanLogo size="lg" />
+            <Logo providerName="bunyan" size="lg" variant="light" className="drop-shadow-lg" />
           </div>
           <h1 className="text-2xl font-black text-white">إنشاء متجر جديد</h1>
           <p className="text-sm text-white/50 mt-1">سجّل متجرك وابدأ إدارة أعمالك</p>

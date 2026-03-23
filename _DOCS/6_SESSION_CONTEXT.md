@@ -21,6 +21,7 @@
 ## قواعد الأوامر الثابتة
 - تبدأ دائماً بـ "اقرأ هذه الملفات أولاً"
 - تنتهي دائماً بـ "لا تشغّل أي أوامر في Terminal. عدّل الملف مباشرة فقط."
+- **قانون التوثيق الإلزامي:** يجب تحديث ملفات `_DOCS/` تلقائياً في نهاية كل جلسة.
 - لا terminal، لا build، لا run، لا npm
 
 ## توزيع النماذج
@@ -280,8 +281,10 @@ id, amount, type, type_ar, balance, description, method, method_ar, status, date
 | on_track | with_courier |
 | enable_delivery | with_courier |
 | delivered | delivered |
+| complete | delivered |
 | returned | return_confirmed |
 | cancelled | cancelled |
+| store_canceled | cancelled |
 
 ### سياسات VanEx التشغيلية
 - **الرواجع:** مجانية بالكامل
@@ -342,23 +345,141 @@ id, amount, type, type_ar, balance, description, method, method_ar, status, date
 **الملفات:**
 - `src/app/(tenant)/delivery/companies/page.tsx`
 
+### Sprint 4 — ربط VanEx بدورة الطلبيات (2026-03-13)
+- ShippingCityMapping — 18 مدينة ليبية مربوطة بـ VanEx IDs
+- sendOrderToVanex() — دالة مركزية في store.ts
+- زر "جاهز للشحن" بنفسجي في orders/page.tsx
+- منطق ذكي: شركة API متصلة = زر واحد فقط (منع التجاوز)
+- رسالة نجاح ديناميكية باسم الشركة الحقيقي
+
+**الملفات:**
+- `src/core/types/index.ts` (ready_to_ship + ShippingCityMapping)
+- `src/core/db/seed.ts` (SEED_CITY_MAPPINGS)
+- `src/core/db/store.ts` (sendOrderToVanex + city CRUD)
+- `src/app/(tenant)/orders/page.tsx`
+- `src/shared/utils/statusColors.ts`
+
+### Sprint 5 — التسويات التلقائية (2026-03-13)
+- VanexSettlement interface — نموذج بيانات التسوية الكاملة
+- accountType 'bank' — خزينة مصرفية جديدة بجانب النقدية
+- fetchVanexSettlements() — جلب التسويات من VanEx وحفظها محلياً
+- applyVanexSettlement() — تطبيق Gross Method المحاسبي الصحيح
+- صفحة التسويات كاملة مع فلاتر + PaymentBadge + Accordion
+
+**الملفات:**
+- `src/core/types/index.ts` (VanexSettlement + bank accountType)
+- `src/core/delivery/VanexAdapter.ts` (getSettlements + getSettlementDetails)
+- `src/core/db/seed.ts` (SEED_VANEX_SETTLEMENTS)
+- `src/core/db/store.ts` (fetchVanexSettlements + applyVanexSettlement)
+- `src/app/(tenant)/delivery/settlements/page.tsx`
+
+### Sprint 7 — City Mappings للسوبر أدمن (2026-03-13)
+- صفحة src/app/super-admin/city-mappings/page.tsx (جديدة)
+- جدول ربط 18 مدينة ليبية بـ VanEx IDs
+- بحث ذكي عربي/إنجليزي + بطاقات إحصاء
+- SlideOver إضافة/تعديل مع parseInt للـ ID
+- رابط "ربط المدن" في super-admin/layout.tsx
+
 ---
 
+### Sprint 8 — إصلاح VanEx API + 401 Auto-Retry (2026-03-14)
+- إصلاح مشكلة encode الباسورد: `atob(passwordHash)` بدلاً من إرسال الـ hash مباشرة
+- نظام Auto-Retry كامل: `isRetry` flag + `setCredentials()` على Adapter
+- Token Root Sanitization: `token.replace(/^["']|["']$/g, '').trim()`
+- نظام `office_cities`: الـ Adapter يلتقط صلاحيات المدن من response المصادقة
+- Permission-based city filtering: رسالة واضحة عند 401 بدلاً من array فارغة
+- `getCities()` يرمي Error صريح بدلاً من إرجاع []
+
+**الملفات:**
+- `src/core/delivery/VanexAdapter.ts`
+
+---
+
+### Sprint 9 — إصلاح أخطاء TypeScript في الطلبيات (2026-03-14)
+- تحديث `ShippingCityMapping`: تغيير `isActive` ← `is_active`، `providerCityId` ← `provider_city_id`
+- تحديث `ShippingRegionMapping`: تغيير `isActive` ← `is_active`
+- إصلاح كل الاستخدامات في `orders/page.tsx` و `seed.ts` و `store.ts`
+- تأكيد أن `seed.ts` يستخدم `is_active` و `bunyan_city_id` و `provider_city_id` (snake_case)
+
+**الملفات:**
+- `src/core/types/index.ts` (ShippingCityMapping + ShippingRegionMapping)
+- `src/core/db/seed.ts` (SEED_CITY_MAPPINGS)
+- `src/app/(tenant)/orders/page.tsx`
+
+### Sprint 10 — Cross-Mapping + Smart Match + Pending Filter (2026-03-15)
+- Cross-Mapping: مدينة مزود يمكن ربطها بمنطقة بنيان (Polymorphic Dropdown بـ `city_`/`region_` prefix)
+- Smart Auto-Match: مطابقة 92 مدينة تلقائياً بضغطة زر (🪄)
+- Pending Filter: زر "المعلق فقط" (🔍) للمدن والمناطق لتسهيل إيجاد غير المربوطة
+- تحديث `provider_geo_mappings`: إضافة `bunyan_region_id` و `parent_mapping_id` في Supabase
+- إعادة كتابة `7_DELIVERY_INTEGRATION_GUIDE.md` من دليل branding → دليل تقني شامل
+- تحديث `2_DATABASE_SCHEMA.md` ليعكس هيكل Cross-Mapping الفعلي
+
+**الملفات:**
+- `src/app/super-admin/city-mappings/page.tsx` (Polymorphic dropdown, Smart Match, Pending Filter)
+- `src/core/db/store.ts` (addCityMapping, addRegionMapping payloads)
+- `src/core/types/index.ts` (bunyan_region_id, parent_mapping_id)
+- `src/core/db/seed.ts` (parent_mapping_id: null for all seed mappings)
+- `_DOCS/7_DELIVERY_INTEGRATION_GUIDE.md` (rewritten)
+- `_DOCS/2_DATABASE_SCHEMA.md` (updated)
+
+---
+
+### Sprint 11 — Zustand Slices Pattern / معالجة الخطر R4 God Object (2026-03-15)
+- **الهدف:** تفكيك `store.ts` (1856 سطر) إلى وحدات منطقية مستقلة باستخدام Zustand Slices Pattern
+- **النتيجة:** صفر أخطاء TypeScript بعد إعادة الهيكلة الكاملة
+- **الأثر:** store.ts انخفض من 1856 → 120 سطر (Root Combiner فقط)
+
+**الشرائح المُنشأة:**
+| Slice | المحتوى | السطور التقريبية |
+|-------|---------|----------------|
+| `coreSlice.ts` | Couriers, Debts, Tenants, Treasury, Users, Notifications, Super Admin | ~140 |
+| `productsSlice.ts` | المنتجات + WAC + حماية الخزينة | ~160 |
+| `ordersSlice.ts` | دورة الطلبيات + خصم المخزون | ~200 |
+| `partnersEmployeesSlice.ts` | الشركاء + الموظفون + الرواتب | ~250 |
+| `geoMappingSlice.ts` | Supabase geo_mappings | ~170 |
+| `deliverySlice.ts` | VanEx API + التسويات + المدن | ~280 |
+
+**نقاط تقنية حرجة:**
+- `providerAuthStore.ts` مُفصول لتجنب Circular Import بين deliverySlice و store.ts
+- الـ SEED تُكتب بعد spread الـ Slices في store.ts لتتجاوز القيم الابتدائية الفارغة
+- `persist` middleware محفوظ بنفس key `bunyan-erp-v1` (لا ضياع بيانات localStorage)
+- `useProviderAuthStore` يُعاد تصديره من store.ts للتوافق مع الاستيرادات القديمة
+
+**الملفات:**
+- `src/core/db/store.ts` (أُعيد كتابته كـ Root Combiner)
+- `src/core/db/providerAuthStore.ts` (جديد — مستقل)
+- `src/core/db/slices/` (6 ملفات جديدة)
+- `_DOCS/1_SYSTEM_RULES.md` (إصدار 4.2 + قانون Zustand Slices)
+- `_DOCS/5_MODULES_MAP.md` (هيكل slices/ المُحدَّث)
+
+---
+
+### Sprint 12 — VanEx Tracking & Sync Finalization (2026-03-22)
+- **Auto-Send to VanEx:** يتم إرسال الطلبية لشركة الشحن (VanEx) تلقائياً عند تغيير الحقل `status` إلى `processing` (من خلال `store.ts`).
+- **Hide Cancellation:** إخفاء زر الإلغاء المجاني للطلبيات بعد إرسالها لشركة التوصيل لمنع الخلافات في الـ Status.
+- **Full Cancellation Hook:** في ملف `sync/route.ts` و `track/route.ts`، أي شحنة تستقبل حالة `cancelled` من مسار VanEx تقوم باستدعاء كود الـ API الخاص بـ `/api/orders/status` لضمان استرجاع المخزون والخزينة.
+- **Status Normalization:** تم ترقية دالة `getShipmentStatus` واستخدام الـ endpoint: `/customer/package/${trackingCode}` مباشرة.
+- **Mapping Update:** إضافة حالتي `complete` (تُعادل `delivered`) و `store_canceled` (تُعادل `cancelled`).
+
+**الملفات:**
+- `src/app/(tenant)/orders/page.tsx`
+- `src/core/delivery/VanexAdapter.ts`
+- `src/app/api/vanex/track/route.ts`
+- `src/app/api/vanex/sync/route.ts`
+- `src/core/types/index.ts`
 
 ---
 
 ## الوحدات القادمة 🔄
-1. **إصلاح ConfirmDialog** — (confirmVariant → variant)
-2. **Sprint 3B** — صفحة الشحنات (courier_raw_status + مزامنة)
-3. **Sprint 4** — إنشاء شحنة VanEx حقيقية من الطلبية
-4. **Sprint 5** — التسويات التلقائية (§3 + §4)
-5. **Sprint 6** — تذاكر الدعم من داخل بنيان (§7)
+1. نشر تجريبي على Vercel
+2. إضافة شركة توصيل ثانية (Adapter جديد)
+3. الخطر R2: نقل بيانات Tenant من localStorage → Supabase
 
 ---
 
 ## آخر تحديث
-**التاريخ:** 2026-03-13
-**الجلسة:** بناء نظام ربط شركات التوصيل كاملاً (Sprint 1+2+3A) + توثيق VanEx API الكامل
-**التالي:** Sprint 3B — صفحة الشحنات
+**التاريخ:** 2026-03-22
+**الجلسة:** Sprint 12 — VanEx Tracking & Sync Finalization
+**التالي:** نشر تجريبي
 
 لا تشغّل أي أوامر في Terminal. عدّل الملف مباشرة فقط.

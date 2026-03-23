@@ -1,5 +1,5 @@
 // src/shared/components/layout/Sidebar.tsx
-// الوظيفة: القائمة الجانبية — Bunyan بنفسجية + لوقو + badges ذكية + صلاحيات
+// الوظيفة: القائمة الجانبية — بنفسجية + لوقو (Logo Component) + badges ذكية + صلاحيات
 // المرجع: _DOCS/3_UI_UX_GUIDELINES.md — هيكل الواجهة
 
 'use client';
@@ -10,7 +10,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/shared/utils/cn';
 import { useAuthStore } from '@/core/auth/store';
 import { useDataStore } from '@/core/db/store';
-import { BunyanLogo } from '@/shared/components/ui/BunyanLogo';
+import { Logo } from '@/shared/components/ui/Logo';
 import {
   LayoutDashboard, Package, ShoppingCart, Truck, Wallet,
   Handshake, Users, FileText, BarChart3, Settings,
@@ -88,9 +88,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       )} style={{ background: 'linear-gradient(180deg, #2a1045 0%, #3a1a5a 100%)' }}>
 
         {/* رأس — لوقو Bunyan */}
-        <div className="flex items-center justify-between p-5 border-b border-white/10">
-          <BunyanLogo size="sm" variant="light" showText={true} />
-          <button onClick={onClose} className="md:hidden text-white/40 hover:text-white transition-colors">
+        <div className="relative flex items-center justify-center py-5 px-4 border-b border-white/10 h-20">
+          <div className="w-20 h-10 p-1 rounded-lg bg-white/10 shadow-sm flex items-center justify-center overflow-hidden scale-90">
+            <Logo providerName="bunyan" size="sm" onDarkBg={true} />
+          </div>
+          <button onClick={onClose} className="md:hidden absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors">
             <X size={20} />
           </button>
         </div>

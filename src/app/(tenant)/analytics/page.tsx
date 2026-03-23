@@ -1,18 +1,20 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useUser } from '@/core/auth/hooks';
+import { useAllOrders, useAllProducts, useGetForTenant } from '@/core/db/hooks';
 import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { BarChart3, TrendingUp, ShoppingCart, Package, DollarSign, Award, Truck, XCircle, Clock, CalendarDays, AlertTriangle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { Order } from '@/core/types';
 
 export default function AnalyticsPage() {
-  const { user } = useAuthStore();
-  const { orders, products, getForTenant } = useDataStore();
+  const user = useUser();
+  const orders = useAllOrders();
+  const products = useAllProducts();
+  const getForTenant = useGetForTenant();
   const tid = user?.tenantId || '';
-  const myOrders = getForTenant(orders, tid);
-  const myProducts = getForTenant(products, tid);
+  const myOrders = useMemo(() => getForTenant(orders, tid), [orders, tid, getForTenant]);
+  const myProducts = useMemo(() => getForTenant(products, tid), [products, tid, getForTenant]);
 
   const [period, setPeriod] = useState<'today' | 'this_week' | 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'custom'>('this_month');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
@@ -131,30 +133,28 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <BarChart3 size={24} className="text-bunyan-600" />
-            تحليلات المبيعات والأداء
-          </h1>
+          <h1 className="text-2xl font-black text-gray-900">تحليلات المبيعات والأداء</h1>
           <p className="text-sm text-gray-500 mt-1">نظرة شاملة على مبيعات متجرك والأصناف الأكثر طلباً</p>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-3 items-center bg-gray-50 p-2 rounded-2xl border border-gray-200">
-           <div className="flex items-center gap-2 px-2">
-             <CalendarDays size={16} className="text-gray-400" />
-             <span className="text-xs font-bold text-gray-600">الفترة:</span>
+        <div className="flex flex-col sm:flex-row gap-2 items-center">
+           <div className="flex bg-gray-100 p-1 rounded-xl gap-0.5 flex-wrap">
+             {[
+               ['today','اليوم'],['this_week','الأسبوع'],['this_month','الشهر'],
+               ['last_month','الماضي'],['last_3_months','3 أشهر'],['this_year','العام'],
+             ].map(([v,l]) => (
+               <button key={v} onClick={() => setPeriod(v as any)}
+                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                   period === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                 }`}>{l}</button>
+             ))}
+             <button onClick={() => setPeriod('custom')}
+               className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                 period === 'custom' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+               }`}>مخصص</button>
            </div>
-           <select value={period} onChange={(e) => setPeriod(e.target.value as any)} 
-             className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 transition-colors shadow-sm">
-             <option value="today">اليوم</option>
-             <option value="this_week">هذا الأسبوع</option>
-             <option value="this_month">هذا الشهر</option>
-             <option value="last_month">الشهر الماضي</option>
-             <option value="last_3_months">آخر 3 أشهر</option>
-             <option value="this_year">هذا العام</option>
-             <option value="custom">مخصص (من/إلى)</option>
-           </select>
            
            {period === 'custom' && (
              <div className="flex items-center gap-2">

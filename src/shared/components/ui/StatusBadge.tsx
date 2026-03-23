@@ -1,13 +1,37 @@
 // src/shared/components/ui/StatusBadge.tsx
-// الوظيفة: شارة الحالة العامة — ألوان حسب الحالة
-// المرجع: _DOCS/3_UI_UX_GUIDELINES.md — شارة الحالة العامة
+// الوظيفة: شارة حالة موحدة مع نقطة ملونة — تدعم الأنواع العامة + الحالات المحددة
+// المرجع: _DOCS/3_UI_UX_GUIDELINES.md
 
 'use client';
 
 import { cn } from '@/shared/utils/cn';
 
+// ═══ Variant-based Badge (للاستخدام العام) ═══
+export type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'purple';
+
+const BADGE_CLASSES: Record<BadgeVariant, string> = {
+  success: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  warning: 'text-amber-700 bg-amber-50 border-amber-200',
+  danger: 'text-red-700 bg-red-50 border-red-200',
+  info: 'text-blue-700 bg-blue-50 border-blue-200',
+  neutral: 'text-gray-700 bg-gray-50 border-gray-200',
+  purple: 'text-purple-700 bg-purple-50 border-purple-200',
+};
+
+const DOT_CLASSES: Record<BadgeVariant, string> = {
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  danger: 'bg-red-500',
+  info: 'bg-blue-500',
+  neutral: 'bg-gray-400',
+  purple: 'bg-purple-500',
+};
+
+// ═══ Status-based Badge (بحالات محددة من النظام) ═══
 type StatusType =
   | 'pending'
+  | 'processing'
+  | 'ready_to_ship'
   | 'with_partner'
   | 'with_courier'
   | 'delivered'
@@ -20,39 +44,84 @@ type StatusType =
   | 'overdue'
   | 'partial';
 
-const STATUS_CONFIG: Record<StatusType, { bg: string; text: string; label: string }> = {
-  pending:          { bg: 'bg-[#fff7ed]', text: 'text-[#7c2d12]', label: 'جديدة' },
-  with_partner:     { bg: 'bg-[#ede9fe]', text: 'text-[#4c1d95]', label: 'مع المندوب' },
-  with_courier:     { bg: 'bg-[#e0f2fe]', text: 'text-[#075985]', label: 'مع شركة التوصيل' },
-  delivered:        { bg: 'bg-[#dcfce7]', text: 'text-[#14532d]', label: 'تم التوصيل ✓' },
-  cancelled:        { bg: 'bg-[#fee2e2]', text: 'text-[#991b1b]', label: 'ملغاة' },
-  pending_return:   { bg: 'bg-[#fef9c3]', text: 'text-[#854d0e]', label: '⚠️ معلق للإرجاع' },
-  return_confirmed: { bg: 'bg-[#f3f4f6]', text: 'text-[#1f2937]', label: 'مُرجَع' },
-  active:           { bg: 'bg-[#dcfce7]', text: 'text-[#14532d]', label: 'نشط' },
-  inactive:         { bg: 'bg-[#f3f4f6]', text: 'text-[#1f2937]', label: 'متوقف' },
-  paid:             { bg: 'bg-[#dcfce7]', text: 'text-[#14532d]', label: 'مدفوع' },
-  overdue:          { bg: 'bg-[#fee2e2]', text: 'text-[#991b1b]', label: 'متأخر' },
-  partial:          { bg: 'bg-[#fef3c7]', text: 'text-[#92400e]', label: 'جزئي' },
+const STATUS_VARIANT_MAP: Record<StatusType, BadgeVariant> = {
+  pending: 'warning',
+  processing: 'info',
+  ready_to_ship: 'purple',
+  with_partner: 'purple',
+  with_courier: 'info',
+  delivered: 'success',
+  cancelled: 'danger',
+  pending_return: 'warning',
+  return_confirmed: 'neutral',
+  active: 'success',
+  inactive: 'neutral',
+  paid: 'success',
+  overdue: 'danger',
+  partial: 'warning',
 };
 
-interface StatusBadgeProps {
-  status: StatusType;
-  label?: string;
-  className?: string;
-}
+const STATUS_LABELS: Record<StatusType, string> = {
+  pending: 'جديدة',
+  processing: 'قيد التجهيز',
+  ready_to_ship: 'جاهز للشحن',
+  with_partner: 'مع المندوب',
+  with_courier: 'مع شركة التوصيل',
+  delivered: 'تم التوصيل',
+  cancelled: 'ملغاة',
+  pending_return: 'معلق للإرجاع',
+  return_confirmed: 'مُرجَع',
+  active: 'نشط',
+  inactive: 'متوقف',
+  paid: 'مدفوع',
+  overdue: 'متأخر',
+  partial: 'جزئي',
+};
 
-export function StatusBadge({ status, label, className }: StatusBadgeProps) {
-  const config = STATUS_CONFIG[status];
+// ═══ واجهة مرنة — تدعم variant أو status ═══
+type StatusBadgeProps =
+  | {
+      /** استخدم variant للتلوين العام */
+      variant: BadgeVariant;
+      label: string;
+      dot?: boolean;
+      status?: never;
+      className?: string;
+    }
+  | {
+      /** استخدم status للحالة من النظام (يُحدد اللون والعنوان تلقائياً) */
+      status: StatusType;
+      label?: string;
+      dot?: boolean;
+      variant?: never;
+      className?: string;
+    };
+
+export function StatusBadge(props: StatusBadgeProps) {
+  const { label, dot = true, className } = props;
+
+  const resolvedVariant: BadgeVariant = props.variant
+    ? props.variant
+    : STATUS_VARIANT_MAP[props.status] || 'neutral';
+
+  const resolvedLabel = label
+    ? label
+    : props.status
+      ? STATUS_LABELS[props.status] || props.status
+      : '';
+
   return (
     <span
       className={cn(
-        'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium',
-        config.bg,
-        config.text,
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border',
+        BADGE_CLASSES[resolvedVariant],
         className
       )}
     >
-      {label || config.label}
+      {dot && (
+        <span className={cn('w-1.5 h-1.5 rounded-full', DOT_CLASSES[resolvedVariant])} />
+      )}
+      {resolvedLabel}
     </span>
   );
 }

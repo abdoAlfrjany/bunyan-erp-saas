@@ -71,6 +71,57 @@ export function calcWeeklySales(orders: Order[]): { day: string; amount: number 
   return result;
 }
 
+/** بيانات مبيعات 30 يوم — بتوزيع حقيقي بناءً على تواريخ الطلبيات المسلّمة */
+export function calcMonthlySales(orders: Order[]): { label: string; sales: number; date: string }[] {
+  const delivered = orders.filter((o) => o.status === 'delivered');
+  const now = new Date();
+  const result: { label: string; sales: number; date: string }[] = [];
+
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    const dayTotal = delivered
+      .filter((o) => o.createdAt.startsWith(dateStr))
+      .reduce((s, o) => s + o.total, 0);
+    result.push({
+      label: `${date.getDate()}/${date.getMonth() + 1}`,
+      sales: Math.round(dayTotal),
+      date: dateStr,
+    });
+  }
+
+  return result;
+}
+
+/** إجمالي مبيعات اليوم */
+export function calcTodaySales(orders: Order[]): number {
+  const today = new Date().toISOString().split('T')[0];
+  return orders
+    .filter((o) => o.status === 'delivered' && o.createdAt.startsWith(today))
+    .reduce((s, o) => s + o.total, 0);
+}
+
+/** أعلى 5 منتجات مبيعاً (من order items) */
+export function calcTopProducts(orders: Order[]): { id: string; name: string; qty: number; revenue: number }[] {
+  const delivered = orders.filter((o) => o.status === 'delivered');
+  const productMap: Record<string, { id: string; name: string; qty: number; revenue: number }> = {};
+
+  delivered.forEach((o) => {
+    o.items.forEach((item) => {
+      if (!productMap[item.productId]) {
+        productMap[item.productId] = { id: item.productId, name: item.productName, qty: 0, revenue: 0 };
+      }
+      productMap[item.productId].qty += item.quantity;
+      productMap[item.productId].revenue += item.total;
+    });
+  });
+
+  return Object.values(productMap)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 5);
+}
+
 /** حصص الشركاء (لـ Pie Chart) */
 export function calcPartnerShares(partners: Partner[]): { name: string; value: number; percentage: number }[] {
   const totalPercentage = partners.reduce((s, p) => s + p.profitPercentage, 0);

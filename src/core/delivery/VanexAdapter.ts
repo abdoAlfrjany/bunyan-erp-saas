@@ -9,40 +9,79 @@ import type {
   ICreateShipmentResult,
   IShipmentStatusResult,
   VanexCity,
+  VanexSettlement,
   Order,
 } from '../types';
 
-const BASE_URL = 'https://app.vanex.ly/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_VANEX_URL || 'https://app.vanex.ly/api/v1';
 
-const VANEX_TO_BUNYAN_STATUS: Record<string, Order['status']> = {
+export const VANEX_TO_BUNYAN_STATUS: Record<string, Order['status']> = {
+  store_canceled:   'cancelled',
   pending:          'pending',
   shipped:          'with_courier',
   on_track:         'with_courier',
   enable_delivery:  'with_courier',
   delivered:        'delivered',
   returned:         'return_confirmed',
+  complete:         'delivered',
   cancelled:        'cancelled',
 };
 
 export class VanexAdapter implements IDeliveryProvider {
   readonly providerName = 'vanex';
 
+  // ═══ Stored credentials for 401 retry ═══
+  private credentials?: { email: string; passwordHash: string };
+  private lastToken?: string;
+  private officeCities: number[] | null = null;
+
+  setCredentials(email: string, passwordHash: string) {
+    this.credentials = { email, passwordHash };
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
-    token?: string
+    token?: string,
+    isRetry = false
   ): Promise<{ success: boolean; data?: T; error?: string }> {
     try {
+      // 1. تنظيف المنبع (Root Sanitization): تنظيف التوكين أياً كان مصدره
+      const rawToken = token || this.lastToken;
+      const activeToken = rawToken ? rawToken.replace(/^["']|["']$/g, '').trim() : null;
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       const res = await fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
+
+      // ═══ 401 Retry — مرة واحدة فقط ═══
+      if (res.status === 401 && !isRetry && this.credentials?.email && this.credentials?.passwordHash) {
+        const reauth = await this.authenticate({
+          email: this.credentials.email,
+          password: atob(this.credentials.passwordHash),
+        });
+        
+        if (reauth.success && reauth.token) {
+          // 2. معالجة الـ Retry Loop: تخزين التوكين الجديد فوراً للاستخدامات القادمة
+          this.lastToken = reauth.token;
+          return this.request<T>(endpoint, options, reauth.token, true);
+        }
+        
+        // 3. تحسين رسالة الخطأ عند فشل المصادقة التلقائية
+        return { success: false, error: 'انتهت صلاحية الجلسة وفشل تحديثها تلقائياً. يرجى إعادة تسجيل الدخول.' };
+      }
+
       const json = await res.json();
 
       if (!res.ok || (json.status_code && json.status_code >= 400)) {
+        // تحسين رسالة الخطأ عند الرفض بـ 401 حتى بعد الـ Retry
+        if (res.status === 401) {
+          return { success: false, error: "فشل الوصول: قد لا يملك الحساب صلاحية لهذه المدينة أو المنطقة أو التوكين غير صالح." };
+        }
         return { success: false, error: json.message || `HTTP ${res.status}` };
       }
       return { success: true, data: json.data as T };
@@ -55,7 +94,7 @@ export class VanexAdapter implements IDeliveryProvider {
   }
 
   async authenticate(credentials: { email: string; password: string }) {
-    const result = await this.request<{ access_token: string }>(
+    const result = await this.request<any>(
       '/authenticate',
       {
         method: 'POST',
@@ -63,6 +102,13 @@ export class VanexAdapter implements IDeliveryProvider {
       }
     );
     if (result.success && result.data) {
+      // Capture office_cities permissions
+      if (result.data.user && Array.isArray(result.data.user.office_cities)) {
+        this.officeCities = result.data.user.office_cities.map((id: any) => Number(id));
+      } else {
+        this.officeCities = null;
+      }
+
       return { success: true, token: result.data.access_token };
     }
     return { success: false, error: result.error };
@@ -73,24 +119,56 @@ export class VanexAdapter implements IDeliveryProvider {
     return result.success;
   }
 
-  async getCities(): Promise<VanexCity[]> {
-    const result = await this.request<Array<{
-      id: number; name: string; name_en: string;
-      code: string; region_id: number; active: boolean;
-    }>>('/city/all');
-    if (result.success && result.data) {
-      return result.data
-        .filter(c => c.active)
-        .map(c => ({
-          id: c.id,
-          name: c.name,
-          nameEn: c.name_en,
-          code: c.code,
-          regionId: c.region_id,
-          active: c.active,
-        }));
+  async getCities(token?: string): Promise<VanexCity[]> {
+    const result = await this.request<any>('/city/all', {}, token);
+    
+    if (!result.success) {
+      // 3. Throw explicit error instead of returning []
+      throw new Error(result.error || "فشل الاتصال بـ API فانكس أو مشكلة CORS");
     }
-    return [];
+
+    // 4. Flexible parsing: look for data in result.data or result directly
+    const rawData = Array.isArray(result.data) ? result.data : (Array.isArray(result) ? result : []);
+    
+    if (rawData.length === 0) {
+       // No data from API
+    }
+
+    // 2. Disable filtering by active for now to ensure we see data
+    return rawData.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      nameEn: c.name_en,
+      code: c.code,
+      regionId: c.region_id,
+      active: !!c.active, // Ensure boolean conversion
+      hasPermission: true,
+    }));
+  }
+
+  async getSubCities(cityId: number, token?: string): Promise<import('../types').VanexSubCity[]> {
+
+    
+    // جلب كل المدن للحصول على المناطق المدمجة بداخلها
+    const result = await this.request<any>('/city/all', { method: 'GET' }, token);
+    
+    if (!result.success) {
+      throw new Error(result.error || "فشل جلب المناطق من مسار المدن");
+    }
+
+    // استخراج المصفوفة بأمان
+    const rawData = Array.isArray(result.data) ? result.data : (result.data?.data || []);
+    
+    // البحث عن المدينة المطلوبة
+    const targetCity = rawData.find((c: any) => Number(c.id) === Number(cityId));
+    
+    // سحب المناطق من مصفوفة locations
+    const subs = targetCity?.locations || [];
+    return subs.map((sub: any) => ({
+      id: Number(sub.id),
+      name: sub.name || sub.name_ar || "بدون اسم",
+      cityId: Number(sub.parent_city || cityId)
+    }));
   }
 
   async calculateDeliveryPrice(fromRegion: number, toCityId: number) {
@@ -112,11 +190,15 @@ export class VanexAdapter implements IDeliveryProvider {
       reciever:          payload.receiverName,      // ⚠️ هجاء VanEx الأصلي المتعمد
       phone:             payload.receiverPhone,
       phone_b:           payload.receiverPhoneB,
-      city:              payload.cityId,
+      city:              Number(payload.cityId),
+      sub_city:          payload.subCityId ? Number(payload.subCityId) : undefined,
       address:           payload.address,
       price:             payload.price,
       description:       payload.description,
       qty:               payload.qty,
+      leangh:            payload.dimLength ? Number(payload.dimLength) : 10,
+      width:             payload.dimWidth  ? Number(payload.dimWidth)  : 10,
+      height:            payload.dimHeight ? Number(payload.dimHeight) : 10,
       notes:             payload.notes,
       sticker_notes:     payload.stickerNotes,
       commission_by:     payload.commissionBy,
@@ -125,6 +207,13 @@ export class VanexAdapter implements IDeliveryProvider {
       payment_methode:   payload.paymentMethod,     // ⚠️ هجاء VanEx الأصلي المتعمد
       partial_delivery:  payload.partialDelivery ?? false,
       store_reference_id: payload.storeReferenceId,
+      insure:            payload.insureShipment ?? false,
+      matching:          payload.matchShipment ?? false,
+      allow_inspection:  payload.allowInspection ?? false,
+      fragile:           payload.fragile ?? false,
+      allow_try_on:      payload.allowTryOn ?? false,
+      partial_allowed:   payload.partialAllowed ?? false,
+      no_heat:           payload.noHeat ?? false,
     };
 
     if (payload.partialDelivery && payload.products?.length) {
@@ -154,19 +243,21 @@ export class VanexAdapter implements IDeliveryProvider {
     return { success: false, error: result.error };
   }
 
-  async getShipmentStatus(trackingCode: string): Promise<IShipmentStatusResult> {
-    const result = await this.request<{ status: string; updated_at?: string }>(
-      `/customer/package/${trackingCode}/check`
+  async getShipmentStatus(trackingCode: string, token?: string): Promise<IShipmentStatusResult> {
+    const result = await this.request<any>(
+      `/customer/package/${trackingCode}`,
+      {},
+      token
     );
     if (result.success && result.data) {
-      const rawStatus = result.data.status;
+      const statusValue = result.data.status_object?.status_value ?? 'unknown';
       return {
-        rawStatus,
-        bunyanStatus: VANEX_TO_BUNYAN_STATUS[rawStatus] ?? 'with_courier',
+        rawStatus: statusValue,
+        bunyanStatus: VANEX_TO_BUNYAN_STATUS[statusValue] ?? 'with_courier',
         lastUpdate: result.data.updated_at,
       };
     }
-    return { rawStatus: 'unknown', bunyanStatus: 'with_courier' };
+    return { rawStatus: result.error ?? 'unknown', bunyanStatus: 'with_courier' };
   }
 
   async cancelShipment(id: number, token: string) {
@@ -178,13 +269,135 @@ export class VanexAdapter implements IDeliveryProvider {
     return { success: result.success, error: result.error };
   }
 
-  async recallShipment(id: number, token: string) {
+  async recallShipment(id: number, token: string, reason?: string) {
     const result = await this.request(
       `/customer/package/${id}/recall`,
-      { method: 'PUT' },
+      { method: 'PUT', body: JSON.stringify({ reason: reason || 'استرجاع من النظام' }) },
       token
     );
     return { success: result.success, error: result.error };
+  }
+
+  async getSettlements(token: string, status?: string): Promise<import('../types').VanexSettlement[]> {
+    const query = status ? `?status=${status}` : '';
+    const result = await this.request<{
+      data: Array<{
+        id: number;
+        settlement_number: string;
+        total_amount: number;
+        status: string;
+        payment_method: { id: number; name: string; name_en: string };
+        created_at: string;
+      }>
+    }>(`/store/settelmets${query}`, {}, token);
+
+    if (result.success && result.data) {
+      const list = Array.isArray(result.data)
+        ? result.data
+        : ((result.data as { data?: unknown[] }).data ?? []);
+
+      return (list as Array<{
+        id: number;
+        settlement_number: string;
+        total_amount: number;
+        payment_method: { name_en: string };
+        created_at: string;
+      }>).map(s => {
+        const paymentNameEn = s.payment_method?.name_en?.toLowerCase() ?? '';
+        const paymentMethod: 'cash' | 'bank_transfer' | 'online' =
+          paymentNameEn.includes('cash') ? 'cash' :
+          paymentNameEn.includes('online') || paymentNameEn.includes('electronic') ? 'online' :
+          'bank_transfer';
+
+        const bankCommission = paymentMethod === 'online'
+          ? Math.round((s.total_amount ?? 0) * 0.02)
+          : 0;
+
+        const netAmount = Math.round((s.total_amount ?? 0) - bankCommission);
+
+        const rawStatus = (s as any).status?.toLowerCase() ?? 'pending';
+        const status: VanexSettlement['status'] =
+          rawStatus === 'paid' ? 'applied' :
+          rawStatus === 'approved' ? 'approved' :
+          rawStatus === 'rejected' ? 'rejected' :
+          'pending';
+
+        return {
+          id: `vs-${s.id}`,
+          tenantId: '',
+          vanexSettlementId: s.id,
+          settlementNumber: s.settlement_number,
+          totalAmount: Math.round(s.total_amount ?? 0),
+          deliveryFees: 0, // ❌ غير موجود في رد مصفوفة التسويات الكلي
+          bankCommission,
+          netAmount,
+          paymentMethod,
+          targetAccountType: (paymentMethod === 'cash' ? 'cash_in_hand' : 'bank') as 'cash_in_hand' | 'bank',
+          status,
+          createdAt: s.created_at,
+          packageCount: 0,
+          courierCompanyId: '',
+          isApproximate: true,
+        };
+      });
+    }
+    return [];
+  }
+
+  async getSettlementDetails(id: number, token: string): Promise<import('../types').VanexSettlement | null> {
+    const result = await this.request<{
+      id: number;
+      settlement_number: string;
+      total_amount: number;
+      payment_method: { name_en: string };
+      packages: Array<{ shipping_cost: number }>;
+      created_at: string;
+    }>(`/store/settelmets/${id}/show`, {}, token);
+
+    if (result.success && result.data) {
+      const s = result.data;
+      const paymentNameEn = s.payment_method?.name_en?.toLowerCase() ?? '';
+      const paymentMethod: 'cash' | 'bank_transfer' | 'online' =
+        paymentNameEn.includes('cash') ? 'cash' :
+        paymentNameEn.includes('online') || paymentNameEn.includes('electronic') ? 'online' :
+        'bank_transfer';
+
+      const totalDeliveryFees = (s.packages ?? [])
+        .reduce((sum: number, p: { shipping_cost: number }) =>
+          sum + Math.round(p.shipping_cost ?? 0), 0);
+
+      const bankCommission = paymentMethod === 'online'
+        ? Math.round(s.total_amount * 0.02)
+        : 0;
+
+      const netAmount = Math.round(s.total_amount - totalDeliveryFees - bankCommission);
+
+      const rawStatus = (s as any).status?.toLowerCase() ?? 'pending';
+      const status: VanexSettlement['status'] =
+        rawStatus === 'paid' ? 'applied' :
+        rawStatus === 'approved' ? 'approved' :
+        rawStatus === 'rejected' ? 'rejected' :
+        'pending';
+
+      return {
+        id: `vs-${s.id}`,
+        tenantId: '',
+        vanexSettlementId: s.id,
+        settlementNumber: s.settlement_number,
+        totalAmount: Math.round(s.total_amount),
+        deliveryFees: totalDeliveryFees,
+        bankCommission,
+        netAmount,
+        paymentMethod,
+        targetAccountType: (paymentMethod === 'cash' ? 'cash_in_hand' : 'bank') as 'cash_in_hand' | 'bank',
+        status,
+        createdAt: s.created_at,
+        packageCount: (s.packages ?? []).length,
+        courierCompanyId: '',
+        isApproximate: false,
+      };
+    }
+    return null;
   }
 }
 

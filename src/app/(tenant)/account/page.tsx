@@ -1,20 +1,23 @@
 'use client';
 
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useAllEmployees, useAllDebts, useGetForTenant } from '@/core/db/hooks';
 import { formatCurrency } from '@/shared/utils/format';
 import { User, Wallet, CalendarDays, Coins, ArrowRightLeft, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '@/shared/components/ui/Toast';
 
 export default function EmployeeAccountPage() {
-  const { user } = useAuthStore();
-  const { employees, getForTenant, debts } = useDataStore();
+  const user = useUser();
+  const employees = useAllEmployees();
+  const debts = useAllDebts();
+  const getForTenant = useGetForTenant();
   const { showToast } = useToast();
   
   const tid = user?.tenantId || '';
-  const myEmps = getForTenant(employees, tid);
-  const myDebts = getForTenant(debts, tid);
+  const myEmps = useMemo(() => getForTenant(employees, tid), [employees, tid, getForTenant]);
+  const myDebts = useMemo(() => getForTenant(debts, tid), [debts, tid, getForTenant]);
 
   // البحث عن الموظف المرتبط بهذا الحساب بناءً على الاسم أو الهاتف
   const employeeData = myEmps.find(e => e.name === user?.fullName || (user?.phone && e.phone === user?.phone));

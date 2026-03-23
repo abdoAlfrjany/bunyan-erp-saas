@@ -8,15 +8,18 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/core/auth/store';
-import { Shield, LogOut, LayoutDashboard, Store, CreditCard, Bell, Search, Menu, X, Settings2, Megaphone } from 'lucide-react';
+import { Shield, LogOut, LayoutDashboard, Store, CreditCard, Bell, Search, Menu, X, Settings2, Megaphone, MapPin } from 'lucide-react';
 import { cn } from '@/shared/utils/cn';
 import { useState } from 'react';
+import { Logo } from '@/shared/components/ui/Logo';
 
 const NAV = [
   { label: 'نظرة عامة', href: '/super-admin', icon: LayoutDashboard },
   { label: 'إدارة المتاجر', href: '/super-admin/tenants', icon: Store },
   { label: 'الفوترة والاشتراكات', href: '/super-admin/billing', icon: CreditCard },
   { label: 'الإعلانات', href: '/super-admin/announcements', icon: Megaphone },
+  { label: 'تكامل الشركات', href: '/super-admin/couriers', icon: Shield },
+  { label: 'ربط المدن', href: '/super-admin/city-mappings', icon: MapPin },
   { label: 'إعدادات المظهر', href: '/super-admin/settings', icon: Settings2 },
 ];
 
@@ -30,18 +33,19 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
 
   useEffect(() => {
     setIsHydrated(true);
-    const checkAuth = setTimeout(() => {
-      const state = useAuthStore.getState();
-      if (!state.isAuthenticated) {
-        // مسح الكوكي لمنع Infinite Redirect Loop مع الـ Middleware
-        document.cookie = 'erp_auth=;path=/;max-age=0';
-        router.push('/login');
-      } else if (state.user?.role !== 'super_admin') {
-        router.push('/dashboard');
-      }
-    }, 100);
-    return () => clearTimeout(checkAuth);
-  }, [router]);
+  }, []);
+
+  // Auth Guard: الاستماع الديناميكي لتجنب Race Conditions
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    if (!isLoading && !isAuthenticated) {
+      document.cookie = 'erp_auth=;path=/;max-age=0';
+      window.location.href = '/login';
+    } else if (!isLoading && isAuthenticated && user?.role !== 'super_admin') {
+      window.location.href = '/dashboard';
+    }
+  }, [isHydrated, isLoading, isAuthenticated, user?.role]);
 
   if (!isHydrated || !isAuthenticated || user?.role !== 'super_admin') {
     return (
@@ -52,14 +56,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   }
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-[#1a0830] text-white overflow-y-auto">
-      <div className="h-20 flex items-center justify-center border-b border-white/5">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-bunyan-500 to-bunyan-600 rounded-xl flex items-center justify-center shadow-lg shadow-bunyan-500/20">
-            <span className="text-sm font-black text-white">B</span>
-          </div>
-          <span className="text-xl font-black tracking-tight">Bunyan<span className="text-bunyan-400 font-normal"> HQ</span></span>
-        </div>
+    <div className="flex flex-col h-full bg-[#1a0830] text-white overflow-y-auto w-full">
+      <div className="h-20 flex items-center justify-center border-b border-white/5 relative z-10 px-4">
+        <Logo providerName="bunyan" size="lg" onDarkBg={true} />
       </div>
 
       <div className="px-4 py-8 flex-1">

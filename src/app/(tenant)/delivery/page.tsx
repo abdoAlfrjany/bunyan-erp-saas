@@ -5,21 +5,23 @@
 
 'use client';
 
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useAllCouriers, useGetForTenant } from '@/core/db/hooks';
 import { formatCurrency } from '@/shared/utils/format';
 import Link from 'next/link';
 import { Truck, Package, CheckCircle2, RotateCcw, Wallet, Building2, ChevronLeft } from 'lucide-react';
 
 export default function DeliveryPage() {
-  const { user } = useAuthStore();
-  const { couriers, getForTenant } = useDataStore();
+  const user = useUser();
+  const couriers = useAllCouriers();
+  const getForTenant = useGetForTenant();
   const tid = user?.tenantId || '';
-  const myCouriers = getForTenant(couriers, tid);
+  const myCouriers = useMemo(() => getForTenant(couriers, tid), [couriers, tid, getForTenant]);
 
-  const totalPending = myCouriers.reduce((s, c) => s + c.pendingAmount, 0);
-  const totalShipments = myCouriers.reduce((s, c) => s + c.totalShipments, 0);
-  const totalDelivered = myCouriers.reduce((s, c) => s + c.totalDelivered, 0);
+  const totalPending = myCouriers.reduce((s, c) => s + (c.pendingAmount || 0), 0);
+  const totalShipments = myCouriers.reduce((s, c) => s + (c.totalShipments || 0), 0);
+  const totalDelivered = myCouriers.reduce((s, c) => s + (c.totalDelivered || 0), 0);
 
   const tabs = [
     { label: 'الشركات', href: '/delivery' },
@@ -69,7 +71,11 @@ export default function DeliveryPage() {
       {/* بطاقات الشركات */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
         {myCouriers.map((c) => {
-          const deliveryRate = c.totalShipments > 0 ? Math.round((c.totalDelivered / c.totalShipments) * 100) : 0;
+          const tShipments = c.totalShipments || 0;
+          const tDelivered = c.totalDelivered || 0;
+          const tReturned = c.totalReturned || 0;
+          const tPending = c.pendingAmount || 0;
+          const deliveryRate = tShipments > 0 ? Math.round((tDelivered / tShipments) * 100) : 0;
           return (
             <div key={c.id} className="bg-white rounded-2xl p-6 border border-gray-100 border-r-4 border-r-bunyan-600 shadow-sm hover:shadow-md transition-all">
               <div className="flex items-start justify-between mb-5">
@@ -93,7 +99,7 @@ export default function DeliveryPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-400">شحنات نشطة</p>
-                    <p className="text-sm font-black text-gray-900">{c.totalShipments - c.totalDelivered - c.totalReturned}</p>
+                    <p className="text-sm font-black text-gray-900">{tShipments - tDelivered - tReturned}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -102,7 +108,7 @@ export default function DeliveryPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-400">توصيل ({deliveryRate}%)</p>
-                    <p className="text-sm font-black text-gray-900">{c.totalDelivered}</p>
+                    <p className="text-sm font-black text-gray-900">{tDelivered}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -111,7 +117,7 @@ export default function DeliveryPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-400">مرتجعات</p>
-                    <p className="text-sm font-black text-gray-900">{c.totalReturned}</p>
+                    <p className="text-sm font-black text-gray-900">{tReturned}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -120,7 +126,7 @@ export default function DeliveryPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-400">قيد التحصيل</p>
-                    <p className="text-sm font-black text-gray-900 font-currency truncate" title={formatCurrency(c.pendingAmount)}>{formatCurrency(c.pendingAmount)}</p>
+                    <p className="text-sm font-black text-gray-900 font-currency truncate" title={formatCurrency(tPending)}>{formatCurrency(tPending)}</p>
                   </div>
                 </div>
               </div>

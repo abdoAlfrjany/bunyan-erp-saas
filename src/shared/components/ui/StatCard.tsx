@@ -1,80 +1,66 @@
 // src/shared/components/ui/StatCard.tsx
-// الوظيفة: بطاقة الإحصاء (Stat Card) — النبض المالي
-// المرجع: _DOCS/3_UI_UX_GUIDELINES.md — بطاقة الإحصاء
-// CSS: bg-white rounded-2xl p-6 border border-[#e2e6ed] shadow-sm
+// الوظيفة: بطاقة إحصاء فاخرة موحدة — تُستخدم في Dashboard, Treasury, Partners, HR
+// المرجع: _DOCS/3_UI_UX_GUIDELINES.md
 
 'use client';
 
-import { cn } from '@/shared/utils/cn';
-import { formatCurrency, formatPercentage } from '@/shared/utils/format';
-import { LucideIcon } from 'lucide-react';
+import { formatCurrency } from '@/shared/utils/format';
+import { TrendingUp, TrendingDown, type LucideIcon } from 'lucide-react';
 
 interface StatCardProps {
-  title: string;
+  label: string;
   value: number;
-  isCurrency?: boolean;
   icon: LucideIcon;
-  iconColor?: string;
-  change?: number;
-  changeLabel?: string;
-  progress?: number;
+  color: string;
+  isCurrency?: boolean;
+  trend?: 'up' | 'down';
+  trendValue?: string;
+  trendLabel?: string;
+  onClick?: () => void;
 }
 
 export function StatCard({
-  title,
+  label,
   value,
-  isCurrency = true,
   icon: Icon,
-  iconColor = '#0e4c6e',
-  change,
-  changeLabel = 'عن الأسبوع الماضي',
-  progress,
+  color,
+  isCurrency = true,
+  trend,
+  trendValue,
+  trendLabel = 'عن الشهر الماضي',
+  onClick,
 }: StatCardProps) {
-  const isPositive = change !== undefined && change >= 0;
-
   return (
-    <div className="bg-white rounded-2xl p-6 border border-page-border shadow-card transition-all hover:shadow-md">
-      <div className="flex items-center justify-between mb-4">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ backgroundColor: `${iconColor}15` }}
-        >
-          <Icon size={20} style={{ color: iconColor }} />
+    <div
+      className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-6
+        hover:shadow-md transition-all duration-200 ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-500">{label}</p>
+          <p className="text-3xl font-black text-gray-900 mt-1 tracking-tight">
+            {isCurrency ? formatCurrency(value) : value.toLocaleString('ar-LY')}
+          </p>
+          {trend && trendValue && (
+            <div className="flex items-center gap-1 mt-2">
+              {trend === 'up'
+                ? <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                : <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+              }
+              <span className={`text-xs font-medium ${
+                trend === 'up' ? 'text-emerald-600' : 'text-red-600'
+              }`}>
+                {trendValue}
+              </span>
+              <span className="text-xs text-gray-400">{trendLabel}</span>
+            </div>
+          )}
         </div>
-        <span className="text-xs font-medium text-text-muted">{title}</span>
+        <div className={`w-12 h-12 rounded-xl bg-${color}-50 flex items-center justify-center flex-shrink-0`}>
+          <Icon className={`w-6 h-6 text-${color}-600`} />
+        </div>
       </div>
-
-      <div className="mb-2">
-        <span className="text-2xl font-bold text-text-primary font-currency">
-          {isCurrency ? formatCurrency(value) : value.toLocaleString()}
-        </span>
-      </div>
-
-      {change !== undefined && (
-        <div className="flex items-center gap-1 mb-3">
-          <span
-            className={cn(
-              'text-xs font-medium',
-              isPositive ? 'text-status-success-text' : 'text-status-danger-text'
-            )}
-          >
-            {isPositive ? '↑' : '↓'} {formatPercentage(Math.abs(change))}
-          </span>
-          <span className="text-xs text-text-muted">{changeLabel}</span>
-        </div>
-      )}
-
-      {progress !== undefined && (
-        <div className="w-full h-1.5 bg-page-bg rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.min(progress, 100)}%`,
-              backgroundColor: iconColor,
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 }

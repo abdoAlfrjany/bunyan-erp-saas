@@ -6,8 +6,8 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useUser } from '@/core/auth/hooks';
+import { useAllOrders, useAllCouriers, useGetForTenant, usePatchOrder } from '@/core/db/hooks';
 import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { SHIPMENT_STATUS, getStatusBadgeClasses } from '@/shared/utils/statusColors';
 import { getDeliveryAdapter } from '@/core/delivery';
@@ -17,12 +17,15 @@ import {
 } from 'lucide-react';
 
 export default function ShipmentsPage() {
-  const { user } = useAuthStore();
-  const { orders, couriers, getForTenant, patchOrder } = useDataStore();
+  const user = useUser();
+  const orders = useAllOrders();
+  const couriers = useAllCouriers();
+  const getForTenant = useGetForTenant();
+  const patchOrder = usePatchOrder();
   const { showToast } = useToast();
   const tid = user?.tenantId || '';
-  const myOrders = getForTenant(orders, tid);
-  const myCouriers = getForTenant(couriers, tid);
+  const myOrders = useMemo(() => getForTenant(orders, tid), [orders, tid, getForTenant]);
+  const myCouriers = useMemo(() => getForTenant(couriers, tid), [couriers, tid, getForTenant]);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -104,7 +107,7 @@ export default function ShipmentsPage() {
       const result = await adapter.getShipmentStatus(shipment.vanexPackageCode);
 
       // Two-Layer Strategy: نحدث courier_raw_status فقط — لا نغير status
-      patchOrder(shipment.id, {
+      await patchOrder(shipment.id, {
         courier_raw_status: result.rawStatus,
       });
 
@@ -140,7 +143,7 @@ export default function ShipmentsPage() {
       {/* الهيدر */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
             <Package size={24} className="text-bunyan-600" />
             الشحنات المُرسلة
           </h1>
@@ -150,7 +153,7 @@ export default function ShipmentsPage() {
         </div>
         <button
           onClick={handleSyncAll}
-          className="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-bunyan-400 hover:bg-bunyan-50 text-gray-600 hover:text-bunyan-700 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          className="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-bunyan-400 hover:bg-bunyan-50 text-gray-700 hover:text-bunyan-800 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm"
         >
           <RefreshCw size={15} />
           مزامنة الكل
@@ -314,7 +317,7 @@ export default function ShipmentsPage() {
 
         {filtered.length === 0 && (
           <div className="text-center py-16">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-gray-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-gray-100 shadow-sm">
               <Truck size={28} className="text-gray-400" />
             </div>
             <p className="text-base font-bold text-gray-900 mb-1">لا توجد شحنات مطابقة</p>

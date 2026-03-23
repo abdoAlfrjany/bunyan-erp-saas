@@ -74,7 +74,7 @@ export interface Order {
   customerPhone: string; customerAddress?: string; customerCity: string;
   deliveryType: 'internal' | 'courier_company' | 'pickup';
   courierCompanyId?: string; shipmentId?: string; deliveryFee: number;
-  status: 'pending' | 'processing' | 'with_courier' | 'with_partner' | 'delivered' | 'cancelled' | 'pending_return' | 'return_confirmed';
+  status: 'pending' | 'processing' | 'ready_to_ship' | 'with_courier' | 'with_partner' | 'delivered' | 'cancelled' | 'pending_return' | 'return_confirmed';
   priceIncludesDelivery: boolean;  // هل القيمة شاملة التوصيل؟
   source?: 'direct' | 'facebook' | 'instagram' | 'whatsapp' | 'other';
   subtotal: number; discount: number; total: number;
@@ -90,16 +90,30 @@ export interface Order {
   partial_delivery?: boolean;
   vanex_package_code?: string;
   vanex_package_id?: number;
+  vanexCityId?: number;
+  vanexSubCityId?: number;
+  dimLength?: number;
+  dimWidth?: number;
+  dimHeight?: number;
+  insureShipment?: boolean;
+  matchShipment?: boolean;
+  allowInspection?: boolean;
+  fragile?: boolean;
+  allowTryOn?: boolean;
+  partialAllowed?: boolean;
+  noHeat?: boolean;
 }
 
 export interface CourierCompany {
-  id: string; tenantId: string; name: string; shortCode: string;
-  merchantCode: string; contactPhone: string; contactPerson: string;
-  defaultDeliveryFee: number; isActive: boolean;
+  id: string; tenantId: string; name: string; shortCode?: string;
+  merchantCode?: string; contactPhone?: string; contactPerson?: string;
+  phone?: string; trackingUrl?: string; isInternal?: boolean; provider?: 'vanex' | 'presto' | 'zajil' | 'mock' | 'none' | string;
+  createdAt?: string;
+  defaultDeliveryFee?: number; isActive: boolean;
   cities?: string[];
-  pricingZones: { zone: string; fee: number }[];
-  requiredFields: { key: string; label: string; type: string; required: boolean }[];
-  totalShipments: number; totalDelivered: number; totalReturned: number; pendingAmount: number;
+  pricingZones?: { zone: string; fee: number }[];
+  requiredFields?: { key: string; label: string; type: string; required: boolean }[];
+  totalShipments?: number; totalDelivered?: number; totalReturned?: number; pendingAmount?: number;
   apiProvider?: 'vanex' | 'mock' | 'none';
   isApiConnected?: boolean;
   connectionStatus?: 'connected' | 'disconnected' | 'error' | 'pending';
@@ -109,6 +123,19 @@ export interface CourierCompany {
     merchantCode?: string;
     token?: string;
     tokenExpiresAt?: string;
+    vanexFromRegionId?: number;
+  };
+}
+
+export interface SuperAdminCourier {
+  id: string;
+  provider: 'vanex' | 'presto' | 'zajil' | 'mock' | 'none';
+  name: string;
+  isActive: boolean;
+  apiCredentials?: {
+    email?: string;
+    passwordHash?: string;
+    token?: string;
   };
 }
 
@@ -128,6 +155,7 @@ export interface Partner {
   isActive: boolean; joinedAt: string;
   userId?: string;
   partnerRole: 'active_partner' | 'silent_investor' | 'custom';
+  deliveryFeePerOrder?: number;
 }
 
 export interface Employee {
@@ -166,11 +194,11 @@ export interface Debt {
   sourceReference?: string;     // رقم الفاتورة أو الطلبية المصدر
   amount: number; paidAmount: number;
   paymentHistory: DebtPayment[]; // سجل الدفعات
-  dueDate: string; status: 'active' | 'partial' | 'paid'; description: string; createdAt: string;
+  dueDate: string; status: 'active' | 'partial' | 'paid' | 'pending'; description?: string; notes?: string; createdAt: string;
 }
 
 export interface TreasuryAccount {
-  id: string; tenantId: string; accountType: 'cash_in_hand' | 'with_courier';
+  id: string; tenantId: string; accountType: 'cash_in_hand' | 'bank' | 'with_courier';
   accountName: string; balance: number; linkedCourierId?: string;
 }
 
@@ -194,9 +222,13 @@ export interface Customer {
   tenantId: string;
   name: string;
   phone: string;        // 10 أرقام، يبدأ بـ 091/092/093/094/095
+  phoneAlt?: string;
   city?: string;
+  region?: string;
   address?: string;
   totalOrders: number;  // يُحسب تلقائياً
+  successOrders?: number;
+  totalSpent?: number;
   createdAt: string;
 }
 
@@ -228,6 +260,17 @@ export interface VanexCity {
   code: string;
   regionId: number;
   active: boolean;
+  isActive?: boolean;
+  deliveryFee?: number;
+  returnFee?: number;
+  hasSubRegions?: boolean;
+  hasPermission?: boolean;
+}
+
+export interface VanexSubCity {
+  id: number;
+  name: string;
+  cityId: number;
 }
 
 export interface ICreateShipmentPayload {
@@ -235,6 +278,7 @@ export interface ICreateShipmentPayload {
   receiverPhone: string;
   receiverPhoneB?: string;
   cityId: number;
+  subCityId?: number;
   address: string;
   price: number;
   description: string;
@@ -249,6 +293,16 @@ export interface ICreateShipmentPayload {
   products?: Array<{ name: string; price: number; qty: number }>;
   storeReferenceId?: string;
   type?: 1 | 2 | 3 | 4;
+  dimLength?: number;
+  dimWidth?: number;
+  dimHeight?: number;
+  insureShipment?: boolean;
+  matchShipment?: boolean;
+  allowInspection?: boolean;
+  fragile?: boolean;
+  allowTryOn?: boolean;
+  partialAllowed?: boolean;
+  noHeat?: boolean;
 }
 
 export interface ICreateShipmentResult {
@@ -266,14 +320,82 @@ export interface IShipmentStatusResult {
   lastUpdate?: string;
 }
 
+// ══════════════════════════════════════════
+// 🗺️ City Mapping — ربط مدن بنيان بمدن شركات التوصيل
+// ══════════════════════════════════════════
+export interface BunyanCity {
+  id: number;
+  name_ar: string;
+}
+
+export interface BunyanRegion {
+  id: number;
+  city_id: number;
+  name_ar: string;
+}
+
+export interface ShippingCityMapping {
+  id: string; // uuid in supabase
+  provider: 'vanex' | 'presto' | 'zajil' | 'mock' | 'none';
+  bunyan_city_id: number | null; // ID in bunyan_cities
+  bunyan_region_id?: number | null; // ID in bunyan_regions for cross-mapping
+  parent_mapping_id: string | null;   // null for cities, used for regions
+  provider_city_id: number; // ID المدينة في شركة التوصيل
+  is_active: boolean;
+  
+  // UI Helpers (Not in DB directly, populated via join or manual mapping in frontend)
+  bunyanCityName?: string; 
+  providerCityName?: string; 
+}
+
+export interface ShippingRegionMapping {
+  id: string; // uuid
+  city_mapping_id: string;    // ID of provider_geo_mappings (City level)
+  provider: 'vanex' | 'presto' | 'zajil' | 'mock' | 'none';
+  provider_city_id: number;
+  provider_region_id: number; // ID المنطقة في شركة التوصيل
+  bunyan_region_id: number;   // ID in bunyan_regions
+  is_active: boolean;
+
+  // UI Helpers
+  bunyanRegionName?: string; 
+  providerRegionName?: string;
+}
+
+// ══════════════════════════════════════════
+// 💰 VanEx Settlement — التسويات المالية
+// ══════════════════════════════════════════
+export interface VanexSettlement {
+  id: string;
+  tenantId: string;
+  vanexSettlementId: number;
+  settlementNumber: string;
+  totalAmount: number;
+  deliveryFees: number;
+  bankCommission: number;
+  netAmount: number;
+  paymentMethod: 'cash' | 'bank_transfer' | 'online';
+  targetAccountType: 'cash_in_hand' | 'bank';
+  status: 'pending' | 'applied' | 'approved' | 'rejected';
+  appliedAt?: string;
+  createdAt: string;
+  packageCount: number;
+  courierCompanyId: string;
+  isApproximate?: boolean;
+}
+
 export interface IDeliveryProvider {
   readonly providerName: string;
+  setCredentials(email: string, passwordHash: string): void;
   authenticate(credentials: { email: string; password: string }): Promise<{ success: boolean; token?: string; error?: string }>;
   validateToken(token: string): Promise<boolean>;
-  getCities(): Promise<VanexCity[]>;
+  getCities(token?: string): Promise<VanexCity[]>;
+  getSubCities?(cityId: number, token?: string): Promise<import('./index').VanexSubCity[]>;
   calculateDeliveryPrice(fromRegion: number, toCityId: number): Promise<{ total: number; deliveryTime: string } | null>;
   createShipment(payload: ICreateShipmentPayload, token: string): Promise<ICreateShipmentResult>;
-  getShipmentStatus(trackingCode: string): Promise<IShipmentStatusResult>;
+  getShipmentStatus(trackingCode: string, token?: string): Promise<IShipmentStatusResult>;
   cancelShipment(id: number, token: string): Promise<{ success: boolean; error?: string }>;
-  recallShipment(id: number, token: string): Promise<{ success: boolean; error?: string }>;
+  recallShipment(id: number, token: string, reason?: string): Promise<{ success: boolean; error?: string }>;
+  getSettlements(token: string, status?: string): Promise<VanexSettlement[]>;
+  getSettlementDetails(id: number, token: string): Promise<VanexSettlement | null>;
 }

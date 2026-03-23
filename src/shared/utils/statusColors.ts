@@ -6,6 +6,7 @@
 export const ORDER_STATUS = {
   pending:          { label: 'جديدة',              bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200', dot: 'bg-amber-500' },
   processing:       { label: 'قيد التجهيز',        bg: 'bg-indigo-50',  text: 'text-indigo-800',  border: 'border-indigo-200', dot: 'bg-indigo-500' },
+  ready_to_ship:    { label: 'جاهز للشحن 📦',      bg: 'bg-violet-50',  text: 'text-violet-700',  border: 'border-violet-200', dot: 'bg-violet-400' },
   with_partner:     { label: 'مع المندوب',         bg: 'bg-violet-50',  text: 'text-violet-800',  border: 'border-violet-200', dot: 'bg-violet-500' },
   with_courier:     { label: 'مع شركة التوصيل',   bg: 'bg-cyan-50',    text: 'text-cyan-800',    border: 'border-cyan-200',  dot: 'bg-cyan-500' },
   delivered:        { label: 'تم التوصيل ✓',      bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', dot: 'bg-emerald-500' },

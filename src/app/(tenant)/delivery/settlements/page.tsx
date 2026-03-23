@@ -1,246 +1,508 @@
-// src/app/(tenant)/delivery/settlements/page.tsx
-// الوظيفة: التسويات المالية — جدول قيد التحصيل لكل شركة + تسوية جديدة
-// الجداول: courier_companies, treasury_accounts, treasury_transactions
-// الصلاحية: OWNER فقط
-
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
-import { formatCurrency } from '@/shared/utils/format';
-import { SlideOver } from '@/shared/components/ui/SlideOver';
+import { useState, useMemo, useCallback } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useFetchVanexSettlements, useApplyVanexSettlement } from '@/core/db/hooks';
+import { useCouriersQuery, useSettlementsQuery } from '@/core/db/hooks/useCouriers';
+import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
+import { useQueryClient } from '@tanstack/react-query';
+import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Banknote, ArrowDownToLine, CheckCircle2, AlertTriangle, FileText, Printer } from 'lucide-react';
-import type { Order } from '@/core/db/seed';
+import {
+  Landmark, RefreshCw, CheckCircle2, Clock,
+  AlertCircle, Loader2, TrendingDown, Banknote,
+  Building2, ChevronDown, ChevronUp, ArrowDownCircle,
+  Wallet, CreditCard
+} from 'lucide-react';
+import type { VanexSettlement } from '@/core/types';
 
 export default function SettlementsPage() {
-  const { user } = useAuthStore();
-  const { couriers, treasury, orders, getForTenant, updateCourier, addTransaction, updateOrderStatus } = useDataStore();
-  const { showToast } = useToast();
+  const user = useUser();
   const tid = user?.tenantId || '';
-  
-  const myCouriers = getForTenant(couriers, tid).filter((c) => c.isActive);
-  const myTreasury = getForTenant(treasury, tid);
-  const myOrders: Order[] = getForTenant(orders, tid);
-  const cashAccount = myTreasury.find((a) => a.accountType === 'cash_in_hand');
+  const queryClient = useQueryClient();
 
-  const [slideOpen, setSlideOpen] = useState(false);
-  const [statementOpen, setStatementOpen] = useState(false);
-  const [selectedCourier, setSelectedCourier] = useState<string | null>(null);
-  const [receivedAmount, setReceivedAmount] = useState<string | number>('');
+  const { data: couriers = [] } = useCouriersQuery(tid);
+  const { data: treasuryData } = useTreasuryQuery(tid);
+  const { data: vanexSettlements = [] } = useSettlementsQuery(tid);
 
-  const totalPending = useMemo(() => myCouriers.reduce((sum, c) => sum + c.pendingAmount, 0), [myCouriers]);
-  const courier = myCouriers.find((c) => c.id === selectedCourier);
+  const treasury = treasuryData?.accounts || [];
 
-  const openSettlement = (courierId: string) => {
-    const c = myCouriers.find((x) => x.id === courierId);
-    setSelectedCourier(courierId);
-    setReceivedAmount(c?.pendingAmount || 0);
-    setSlideOpen(true);
-  };
+  const fetchVanexSettlements = useFetchVanexSettlements();
+  const applyVanexSettlement = useApplyVanexSettlement();
+  const { showToast } = useToast();
 
-  const openStatement = (courierId: string) => {
-    setSelectedCourier(courierId);
-    setStatementOpen(true);
-  };
+  const myCompanies = useMemo(() => couriers.filter(
+    c => c.isActive && c.isApiConnected && c.apiProvider !== 'none'
+  ), [couriers]);
+  const myAccounts = treasury;
+  const mySettlements = vanexSettlements;
 
-  const handleSettle = () => {
-    const amt = Number(receivedAmount);
-    if (!courier || !cashAccount) return;
-    if (amt <= 0) {
-      showToast('المبلغ المستلم غير صالح', 'error');
+  const cashAccount = myAccounts.find(a => a.accountType === 'cash_in_hand');
+  const bankAccount = myAccounts.find(a => a.accountType === 'bank');
+  const courierAccounts = myAccounts.filter(a => a.accountType === 'with_courier');
+
+  const totalPending = myAccounts
+    .filter((a: any) => a.accountType === 'with_courier')
+    .reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
+
+  const [fetchingId, setFetchingId] = useState<string | null>(null);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'applied'>('all');
+  const [filterCourier, setFilterCourier] = useState<string>('all');
+  // Cache للمبالغ الدقيقة بعد جلب التفاصيل
+  const [detailsCache, setDetailsCache] = useState<Record<string, VanexSettlement>>({});
+  const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    return mySettlements
+      .filter((s: any) => filterStatus === 'all' || s.status === filterStatus)
+      .filter((s: any) => filterCourier === 'all' || s.courierCompanyId === filterCourier)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [mySettlements, filterStatus, filterCourier]);
+
+  const pendingCount = mySettlements.filter(s => s.status === 'pending').length;
+  const appliedCount = mySettlements.filter(s => s.status === 'applied').length;
+  const totalApplied = mySettlements
+    .filter(s => s.status === 'applied')
+    .reduce((sum, s) => sum + s.netAmount, 0);
+
+  // جلب التفاصيل الدقيقة عند فتح تسوية تقريبية
+  const handleExpand = useCallback(async (settlement: VanexSettlement) => {
+    const isNowExpanded = expandedId === settlement.id;
+    if (isNowExpanded) {
+      setExpandedId(null);
       return;
     }
-    
-    const diff = courier.pendingAmount - amt;
-
-    // تحديث pending amount الشركة (الديون الخاصة بها)
-    updateCourier(courier.id, { pendingAmount: diff > 0 ? diff : 0 });
-
-    // 2. تحديث حالات الطلبيات بعد التسوية مع الشركة (حسب طلب المستخدم)
-    myOrders.forEach(o => {
-      if (o.courierCompanyId === courier.id && o.status === 'delivered' && o.paymentStatus === 'with_courier_company') {
-        updateOrderStatus(o.id, 'delivered', 'settled_to_treasury');
+    setExpandedId(settlement.id);
+    // إذا كانت مبالغها تقريبية ولم تُحمَّل بعد، نجلب التفاصيل
+    if (settlement.isApproximate && !detailsCache[settlement.id]) {
+      setLoadingDetails(settlement.id);
+      try {
+        const res = await fetch(
+          `/api/vanex/settlements/details?vanexId=${settlement.vanexSettlementId}&courierId=${settlement.courierCompanyId}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.settlement) {
+            setDetailsCache(prev => ({ ...prev, [settlement.id]: data.settlement }));
+            // نحدث الكاش لأنه تم حفظ المبالغ الدقيقة في قاعدة البيانات الآن عبر الـ API
+            queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
+          }
+        }
+      } finally {
+        setLoadingDetails(null);
       }
-    });
+    }
+  }, [expandedId, detailsCache]);
 
-    // إضافة حركة خزينة
-    addTransaction({
-      id: `tt-settle-${Date.now()}`, tenantId: tid, accountId: cashAccount.id,
-      transactionType: 'courier_settlement', amount: amt,
-      description: `تسوية أرباح ${courier.name} — المتوقع: ${formatCurrency(courier.pendingAmount)} | المستلم: ${formatCurrency(amt)}${diff > 0 ? ` | العجز/باقي: ${formatCurrency(diff)}` : ''}`,
-      createdAt: new Date().toISOString().split('T')[0],
-      transactionDate: new Date().toISOString(),
-    });
+  const handleFetch = async (courierId: string) => {
+    const courier = myCompanies.find(c => c.id === courierId);
+    if (!courier) return;
+    setFetchingId(courierId);
+    try {
+      const result = await fetchVanexSettlements(courierId);
+      if (result.success) {
+        // إعادة جلب التسويات من قاعدة البيانات
+        queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
+        showToast(
+          result.count === 0
+            ? `لا توجد تسويات جديدة من ${courier.name}`
+            : `✅ تم حفظ ${result.count} تسوية جديدة من ${courier.name}`,
+          result.count === 0 ? 'warning' : 'success'
+        );
+      } else {
+        showToast(result.error || 'فشل جلب التسويات', 'error');
+      }
+    } finally {
+      setFetchingId(null);
+    }
+  };
 
-    setSlideOpen(false);
-    setSelectedCourier(null);
-    showToast(`تمت التسوية بنجاح وتم إيداع ${formatCurrency(amt)} بالخزينة`, 'success');
+  const handleApply = async (settlement: VanexSettlement) => {
+    const courier = couriers.find(c => c.id === settlement.courierCompanyId);
+    const targetType = settlement.targetAccountType === 'bank' ? 'الخزينة المصرفية' : 'الخزينة النقدية';
+
+    const confirmed = window.confirm(
+      `تطبيق تسوية ${settlement.settlementNumber}\n\n` +
+      `الإجمالي: ${settlement.totalAmount} د.ل\n` +
+      `عمولات التوصيل: ${settlement.deliveryFees} د.ل\n` +
+      `عمولة البنك: ${settlement.bankCommission} د.ل\n` +
+      `الصافي: ${settlement.netAmount} د.ل\n\n` +
+      `سيُودع في: ${targetType}\n\n` +
+      `هل تؤكد؟`
+    );
+    if (!confirmed) return;
+
+    setApplyingId(settlement.id);
+    try {
+      const result = await applyVanexSettlement(
+        settlement.id,
+        tid
+      );
+      if (result.success) {
+        queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
+        queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
+        showToast(
+          `✅ تم تطبيق التسوية — ${formatCurrency(settlement.netAmount)} أُضيفت للخزينة`,
+          'success'
+        );
+      } else {
+        showToast(result.error || 'فشل تطبيق التسوية', 'error');
+      }
+    } finally {
+      setApplyingId(null);
+    }
+  };
+
+  const PaymentBadge = ({ method }: { method: VanexSettlement['paymentMethod'] }) => {
+    const config = {
+      cash: { label: 'كاش', bg: 'bg-emerald-50', text: 'text-emerald-700', icon: <Banknote size={11} /> },
+      bank_transfer: { label: 'حوالة', bg: 'bg-blue-50', text: 'text-blue-700', icon: <Landmark size={11} /> },
+      online: { label: 'إلكتروني', bg: 'bg-violet-50', text: 'text-violet-700', icon: <CreditCard size={11} /> },
+    };
+    const c = config[method];
+    return (
+      <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium ${c.bg} ${c.text}`}>
+        {c.icon} {c.label}
+      </span>
+    );
   };
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Banknote size={24} className="text-bunyan-600" />
-            التسويات المالية مع الشركات
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">إدخال الأموال المحصلة من شركات التوصيل إلى خزينة المتجر</p>
+
+      {/* الهيدر */}
+      <div>
+        <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <Landmark size={24} className="text-purple-600" />
+          التسويات المالية مع الشركات
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          استلام وتطبيق أموال التسويات من شركات التوصيل على الخزينة
+        </p>
+      </div>
+
+      {/* بطاقات الأرصدة */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet size={16} className="text-emerald-600" />
+            <span className="text-xs text-gray-500">الخزينة النقدية</span>
+          </div>
+          <div className="text-xl font-black text-gray-900">
+            {formatCurrency(cashAccount?.balance ?? 0)}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Landmark size={16} className="text-blue-600" />
+            <span className="text-xs text-gray-500">الخزينة المصرفية</span>
+          </div>
+          <div className="text-xl font-black text-gray-900">
+            {formatCurrency(bankAccount?.balance ?? 0)}
+          </div>
+          {!bankAccount && (
+            <p className="text-[10px] text-amber-600 mt-1">
+              ⚠️ لا توجد خزينة مصرفية
+            </p>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock size={16} className="text-amber-600" />
+            <span className="text-xs text-gray-500">قيد التحصيل (كل الشركات)</span>
+          </div>
+          <div className="text-xl font-black text-amber-600">
+            {formatCurrency(totalPending)}
+          </div>
         </div>
       </div>
 
-      {/* stat */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex items-center gap-4">
-        <div className="w-14 h-14 bg-bunyan-50 rounded-2xl flex items-center justify-center shrink-0">
-          <Banknote size={28} className="text-bunyan-600" />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-gray-500 mb-1">إجمالي الأموال العالقة لدى كل الشركات</p>
-          <p className="text-3xl font-black text-gray-900 font-currency tracking-tight">{formatCurrency(totalPending)}</p>
-        </div>
-      </div>
+      {/* قسم جلب التسويات */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+          <RefreshCw size={15} className="text-bunyan-600" />
+          جلب التسويات من الشركات المربوطة
+        </h2>
 
-      {/* جدول الشركات */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-right">
-            <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4">اسم الشركة الناقلة</th>
-                <th className="px-6 py-4">إجمالي الشحنات الفعالة</th>
-                <th className="px-6 py-4">المبلغ المستحق لك (أرباحك)</th>
-                <th className="px-6 py-4">أخذ الإجراء</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {myCouriers.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
-                  <td className="px-6 py-4 font-bold text-gray-900">{c.name}</td>
-                  <td className="px-6 py-4 text-gray-600 font-semibold">{c.totalShipments - c.totalReturned} شحنة</td>
-                  <td className="px-6 py-4 font-black text-gray-900 font-currency text-base">
-                    {c.pendingAmount > 0 ? formatCurrency(c.pendingAmount) : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => openSettlement(c.id)} disabled={c.pendingAmount <= 0}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-bunyan-600 text-white rounded-lg text-xs font-bold hover:bg-bunyan-700 transition-colors disabled:opacity-50 disabled:bg-gray-300 disabled:text-gray-500 w-fit">
-                          <CheckCircle2 size={16} /> تصفية وتحديث
-                        </button>
-                        <button onClick={() => openStatement(c.id)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors w-fit">
-                          <FileText size={16} /> كشف حساب
-                        </button>
+        {myCompanies.length === 0 ? (
+          <div className="text-center py-6">
+            <Building2 size={32} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-sm text-gray-400">
+              لا توجد شركات مربوطة بـ API
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              اذهب لإدارة الشركات وافعّل ربط الحساب أولاً
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {myCompanies.map(company => {
+              const courierAcc = courierAccounts.find(
+                a => a.linkedCourierId === company.id
+              );
+              return (
+                <div
+                  key={company.id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-gray-50 border-t-2 border-gray-200">
-              <tr>
-                <td className="px-6 py-4 font-bold text-gray-900 whitespace-nowrap">الإجمالي الكلي للشركات النشطة</td>
-                <td className="px-6 py-4 font-bold text-gray-900">{myCouriers.reduce((s, c) => s + c.totalShipments - c.totalReturned, 0)}</td>
-                <td className="px-6 py-4 font-black text-bunyan-600 font-currency text-lg">{formatCurrency(totalPending)}</td>
-                <td className="px-6 py-4"></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{company.name}</p>
+                      <p className="text-[11px] text-gray-400">
+                        قيد التحصيل: {formatCurrency((courierAcc as any)?.balance ?? 0)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleFetch(company.id)}
+                    disabled={fetchingId === company.id}
+                    className="inline-flex items-center gap-1.5 text-xs bg-bunyan-50 hover:bg-bunyan-100 text-bunyan-700 border border-bunyan-200 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {fetchingId === company.id ? (
+                      <><Loader2 size={12} className="animate-spin" /> جاري الجلب...</>
+                    ) : (
+                      <><RefreshCw size={12} /> جلب التسويات</>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* SlideOver: تسوية جديدة */}
-      <SlideOver isOpen={slideOpen} onClose={() => setSlideOpen(false)} title={`تسوية مالية — ${courier?.name || ''}`}>
-        <div className="space-y-6">
-          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center shadow-inner">
-            <p className="text-sm font-bold text-blue-700 mb-1">المبلغ الإجمالي المتوقع تحصيله</p>
-            <p className="text-3xl font-black text-blue-900 font-currency">{formatCurrency(courier?.pendingAmount || 0)}</p>
-          </div>
-
-          <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm">
-            <label className="block text-sm font-bold text-gray-900 mb-3 text-center">كم استلمت منهم نقداً / تحويلاً؟</label>
-            <div className="relative max-w-xs mx-auto">
-              <input type="number" value={receivedAmount} onChange={(e) => setReceivedAmount(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl text-2xl font-mono font-black text-center focus:outline-none focus:border-bunyan-500 text-gray-900 transition-colors" placeholder="0" />
-            </div>
-            
-            {courier && Number(receivedAmount) !== courier.pendingAmount && Number(receivedAmount) > 0 && (
-              <div className={`mt-4 mx-auto max-w-xs rounded-xl p-3 text-xs font-bold text-center border shadow-sm ${Number(receivedAmount) < courier.pendingAmount ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-                {Number(receivedAmount) < courier.pendingAmount ? (
-                  <span className="flex items-center justify-center gap-1.5"><AlertTriangle size={14}/> يوجد نقص قدره: {formatCurrency(Math.abs(courier.pendingAmount - Number(receivedAmount)))} (سيبقى في ذمتهم)</span>
-                ) : (
-                  <span>✅ يوجد فائض: {formatCurrency(Math.abs(courier.pendingAmount - Number(receivedAmount)))}</span>
-                )}
-              </div>
+      {/* قائمة التسويات */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-gray-700">
+            التسويات ({mySettlements.length})
+            {pendingCount > 0 && (
+              <span className="mr-2 text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                {pendingCount} معلّقة
+              </span>
             )}
-          </div>
+          </h2>
 
-          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
-            <p className="text-sm font-bold text-gray-600 tracking-tight">ستدخل هذه الأموال فوراً إلى الحساب المالي:</p>
-            <p className="text-sm font-black text-gray-900 flex items-center gap-1.5"><ArrowDownToLine size={16} className="text-emerald-600" /> {cashAccount?.accountName || 'خزينة النقد'}</p>
-          </div>
+          {/* فلاتر */}
+          <div className="flex gap-2">
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value as 'all' | 'pending' | 'applied')}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600"
+            >
+              <option value="all">كل الحالات</option>
+              <option value="pending">معلّقة</option>
+              <option value="applied">مطبّقة</option>
+            </select>
 
-          <button onClick={handleSettle} disabled={!receivedAmount || Number(receivedAmount) <= 0}
-            className="w-full py-4 bg-bunyan-600 text-white font-black rounded-xl hover:bg-bunyan-700 transition-all text-base shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed mt-4 flex items-center justify-center gap-2">
-            تم الاستلام واعتماد التسوية <CheckCircle2 size={18} />
-          </button>
+            <select
+              value={filterCourier}
+              onChange={e => setFilterCourier(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600"
+            >
+              <option value="all">كل الشركات</option>
+              {myCompanies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
-      </SlideOver>
 
-      {/* SlideOver: كشف حساب */}
-      <SlideOver isOpen={statementOpen} onClose={() => setStatementOpen(false)} title={`كشف حساب مندوب — ${courier?.name || ''}`}>
-         <div className="space-y-6">
-            <div className="flex justify-between items-center bg-gray-50 p-4 rounded-xl border border-gray-100 mb-4">
-               <div>
-                  <p className="text-xs font-bold text-gray-500 mb-1">صافي الحساب مستحق الدفع (لنا)</p>
-                  <p className="text-2xl font-black text-gray-900 font-currency">{formatCurrency(courier?.pendingAmount || 0)}</p>
-               </div>
-               <button onClick={() => { showToast('جاري استدعاء الطابعة...', 'info'); setTimeout(() => window.print(), 500); }} 
-                 className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-bold hover:bg-gray-800">
-                 <Printer size={16} /> طباعة الكشف
-               </button>
-            </div>
+        {filtered.length === 0 && (
+          <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center">
+            <Landmark size={36} className="mx-auto text-gray-300 mb-3" />
+            <p className="text-sm text-gray-400">
+              {mySettlements.length === 0
+                ? 'لا توجد تسويات — اضغط "جلب التسويات" أولاً'
+                : 'لا توجد تسويات تطابق الفلتر'}
+            </p>
+          </div>
+        )}
 
-            <div className="border border-gray-100 rounded-xl overflow-hidden border-b-0 print:border-none print:shadow-none bg-white">
-               <table className="w-full text-xs text-right print:text-black">
-                  <thead className="bg-gray-50 text-gray-600 font-bold border-b border-gray-100 print:bg-transparent print:border-b-2 print:border-black">
-                     <tr>
-                        <th className="px-4 py-3">رقم التتبع</th>
-                        <th className="px-4 py-3">الزبون والمدينة</th>
-                        <th className="px-4 py-3">قيمة الطلبية</th>
-                        <th className="px-4 py-3">أجرة التوصيل</th>
-                        <th className="px-4 py-3">الصافي للمتجر</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 print:divide-gray-300">
-                     {myOrders.filter(o => o.courierCompanyId === courier?.id && o.status === 'delivered').map(o => {
-                        const netToUs = o.total - (o.deliveryFee || 0);
-                        return (
-                           <tr key={o.id} className="hover:bg-gray-50 print:hover:bg-transparent py-1">
-                              <td className="px-4 py-3 font-mono font-bold">{o.orderNumber}</td>
-                              <td className="px-4 py-3">{o.customerName} ({o.customerCity})</td>
-                              <td className="px-4 py-3 font-currency">{formatCurrency(o.total)}</td>
-                              <td className="px-4 py-3 font-currency text-red-600 print:text-black">{formatCurrency(o.deliveryFee || 0)}</td>
-                              <td className="px-4 py-3 font-currency font-black text-emerald-600 print:text-black">{formatCurrency(netToUs)}</td>
-                           </tr>
-                        );
-                     })}
-                     {myOrders.filter(o => o.courierCompanyId === courier?.id && o.status === 'delivered').length === 0 && (
-                        <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 font-bold">لا توجد طلبيات مسلّمة مسجلة في عهدة هذا المندوب حتى الآن.</td></tr>
-                     )}
-                  </tbody>
-               </table>
+        {filtered.map(settlement => {
+          const courier = couriers.find(c => c.id === settlement.courierCompanyId);
+          const isExpanded = expandedId === settlement.id;
+          const isApplying = applyingId === settlement.id;
+
+          return (
+            <div
+              key={settlement.id}
+              className={`bg-white rounded-2xl border shadow-sm transition-all ${
+                settlement.status === 'applied'
+                  ? 'border-gray-100 opacity-75'
+                  : 'border-gray-200 hover:shadow-md'
+              }`}
+            >
+              <div className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+
+                  {/* معلومات التسوية */}
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900 text-sm font-mono">
+                        {settlement.settlementNumber}
+                      </span>
+                      <PaymentBadge method={settlement.paymentMethod} />
+                      {settlement.status === 'applied' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                          <CheckCircle2 size={10} /> مطبّقة
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                          <Clock size={10} /> معلّقة
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                      <span>{courier?.name ?? '—'}</span>
+                      <span>{settlement.packageCount} شحنة</span>
+                      <span>{formatDate(settlement.createdAt)}</span>
+                      {settlement.appliedAt && (
+                        <span className="text-emerald-600">
+                          طُبّقت: {formatDate(settlement.appliedAt)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* المبالغ والأزرار */}
+                  <div className="flex items-center gap-3">
+                    <div className="text-left">
+                      <div className="text-lg font-black text-gray-900 flex items-baseline gap-1">
+                        {settlement.isApproximate && !detailsCache[settlement.id] ? (
+                          <span className="text-xs font-medium text-amber-500" title="المبلغ تقريبي — افتح للتفاصيل الدقيقة">~</span>
+                        ) : null}
+                        {formatCurrency((detailsCache[settlement.id] ?? settlement).netAmount)}
+                      </div>
+                      <div className="text-[10px] text-gray-400 flex items-center gap-1">
+                        {settlement.isApproximate && !detailsCache[settlement.id] && (
+                          <span className="text-amber-400" title="المبلغ الصافي تقريبي">تقريبي</span>
+                        )}
+                        صافي → {settlement.targetAccountType === 'bank' ? 'مصرفية' : 'نقدية'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {settlement.status === 'pending' && (
+                        <button
+                          onClick={() => handleApply(settlement)}
+                          disabled={isApplying}
+                          className="inline-flex items-center gap-1.5 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors font-medium"
+                        >
+                          {isApplying ? (
+                            <><Loader2 size={12} className="animate-spin" /> جاري...</>
+                          ) : (
+                            <><ArrowDownCircle size={12} /> تطبيق</>
+                          )}
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => handleExpand(settlement)}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                      >
+                        {loadingDetails === settlement.id
+                          ? <Loader2 size={15} className="animate-spin text-amber-500" />
+                          : isExpanded
+                            ? <ChevronUp size={15} />
+                            : <ChevronDown size={15} />
+                        }
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* تفاصيل موسّعة */}
+                {isExpanded && (() => {
+                  const exact = detailsCache[settlement.id] ?? settlement;
+                  const isLoadingExact = loadingDetails === settlement.id;
+                  return (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    {settlement.isApproximate && !detailsCache[settlement.id] && !isLoadingExact && (
+                      <div className="mb-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                        <AlertCircle size={13} />
+                        المبالغ التفصيلية تُحسب من رد فانكس عند المزامنة. قد يختلف الصافي النهائي قليلاً بعد احتساب رسوم التوصيل الدقيقة.
+                      </div>
+                    )}
+                    {isLoadingExact && (
+                      <div className="mb-3 flex items-center gap-2 text-xs text-bunyan-600 bg-bunyan-50 border border-bunyan-100 rounded-xl px-3 py-2">
+                        <Loader2 size={13} className="animate-spin" />
+                        جاري جلب المبالغ الدقيقة من فانكس...
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        {
+                          label: 'الإجمالي من الشركة',
+                          value: formatCurrency(exact.totalAmount),
+                          color: 'text-gray-900',
+                        },
+                        {
+                          label: 'عمولات التوصيل',
+                          value: exact.deliveryFees > 0
+                            ? `-${formatCurrency(exact.deliveryFees)}`
+                            : 'مجاني',
+                          color: exact.deliveryFees > 0 ? 'text-red-600' : 'text-emerald-600',
+                          note: settlement.isApproximate && exact.deliveryFees === 0 ? 'تقريبي' : undefined,
+                        },
+                        {
+                          label: 'عمولة البنك 2%',
+                          value: exact.bankCommission > 0
+                            ? `-${formatCurrency(exact.bankCommission)}`
+                            : 'لا يوجد',
+                          color: exact.bankCommission > 0 ? 'text-red-600' : 'text-gray-400',
+                        },
+                        {
+                          label: 'الصافي المُودَع',
+                          value: (detailsCache[settlement.id] ? '' : settlement.isApproximate ? '~ ' : '') +
+                            formatCurrency(exact.netAmount),
+                          color: 'text-emerald-700 font-bold',
+                        },
+                      ].map(item => (
+                        <div key={item.label} className="bg-gray-50 rounded-xl p-3">
+                          <div className="text-[10px] text-gray-400 mb-1">{item.label}</div>
+                          <div className={`text-sm font-semibold ${item.color}`}>
+                            {item.value}
+                          </div>
+                          {(item as any).note && <div className="text-[9px] text-amber-500 mt-0.5">{(item as any).note}</div>}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl p-3">
+                      {settlement.targetAccountType === 'bank'
+                        ? <><Landmark size={13} className="text-blue-500" /> سيُودَع في الخزينة المصرفية</>
+                        : <><Banknote size={13} className="text-emerald-500" /> سيُودَع في الخزينة النقدية</>
+                      }
+                    </div>
+                  </div>
+                );})()}
+              </div>
             </div>
-         </div>
-         <style dangerouslySetInnerHTML={{__html: `
-           @media print {
-             body * { visibility: hidden; }
-             .slide-over-content * { visibility: visible; }
-             .slide-over-content { position: absolute; left: 0; top: 0; width: 100%; height: auto; outline: none; box-shadow: none; border: none; overflow: visible; padding: 20px;}
-             @page { size: auto; margin: 20mm; }
-           }
-         `}} />
-      </SlideOver>
+          );
+        })}
+      </div>
+
+      {/* ملخص إجمالي */}
+      {appliedCount > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-emerald-700">
+            <CheckCircle2 size={16} />
+            <span>{appliedCount} تسوية مطبّقة</span>
+          </div>
+          <div className="font-black text-emerald-700">
+            {formatCurrency(totalApplied)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,319 +1,194 @@
-# 2_DATABASE_SCHEMA.md — هيكل قاعدة البيانات (الواقع الحالي - الإصدار 3.3)
+# 2_DATABASE_SCHEMA.md — هيكل قاعدة البيانات (الواقع الحالي - الإصدار 4.2)
 
-# ⚠️ النظام يعتمد حالياً على Zustand + LocalStorage (Persist) كمحرك بيانات
-
-# وسيتم نقل هذا المخطط إلى Supabase SQL لاحقاً عند النشر الإنتاجي.
+# ⚠️ النظام يعتمد حالياً على **Supabase (PostgreSQL + RLS)** مدعوماً بـ **React Query** لجلب البيانات من الـ Server، و **Zustand** للكاشينغ السريع على بيئة المستخدم.
 
 ---
 
 ## 📌 الحقول الأساسية في كل واجهة (Interface)
 
-كل كيان في النظام يمتلك `id` كسلسلة فريدة، و `tenantId` يحدد هوية المتجر المالك للبيانات لضمان العزل التام للمخازن.
+كل كيان في النظام يمتلك `id` (عادة UUID)، و `tenant_id` يحدد هوية المتجر المالك للبيانات لضمان العزل التام للمخازن. الجداول في Supabase تُكتب بـ `snake_case`، وتُحوّل في بيئة TypeScript إلى `camelCase` لتوافق الـ Models.
 
 ---
 
-## ══════════════════════════════════════════
+## 🌐 الطبقة الصفرية — Super Admin والمستخدمون (Auth)
 
-## 🌐 الطبقة الصفرية — Super Admin
+### `profiles` (جدول المستخدمين المكمل لـ auth.users)
+هذا الجدول هو المرآة لـ Supabase Auth `auth.users`، ويحمل كل تفاصيل المستخدمين والأدوار.
 
-## ══════════════════════════════════════════
-
-### `Tenant` (المتجر)
-
-```typescript
-interface Tenant {
-  id: string; // مثال: 't1' أو UUID
-  name: string; // اسم المتجر
-  ownerEmail: string; // البريد الإلكتروني للمالك
-  plan: "trial" | "basic" | "pro" | "lifetime";
-  isActive: boolean; // يحدد ما إذا كان المتجر يمكنه العمل أم موقوف (Kill-Switch)
-  createdAt: string;
-}
+```sql
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id),
+  tenant_id UUID, -- NULL للسوبر أدمن (الـ Owners للمنصة)
+  full_name TEXT,
+  email TEXT,
+  role TEXT CHECK (role IN ('super_admin', 'owner', 'admin', 'employee', 'partner')), -- تم تعديله لتشمل 'super_admin'
+  permissions JSONB,
+  phone TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 ```
+*ملاحظة: السوبر أدمن الفعلي يُدار الآن عبر رتبة `super_admin` مباشرة في الـ Profiles.*
 
-### `TenantUser` (مستخدمو المتاجر)
+### `tenants` (المتاجر)
+بنية المتاجر، ترتبط بـ `tenant_id`.
 
-هو الجدول الفعلي للمستخدمين داخل أي متجر (يستطيعون الدخول به عبر `login`).
-
-```typescript
-interface TenantUser {
-  id: string;
-  tenantId: string;
-  fullName: string;
-  email: string;
-  passwordHash: string; // حالياً: btoa(password) كـ Mock
-  role: "owner" | "partner" | "employee"; // دور المستخدم
-  permissions: UserPermissions; // كائن يحدد بدقة 100% ما يستطيع عمله
-  phone?: string;
-  isActive: boolean;
-  createdAt: string;
-}
-```
-
-#### `UserPermissions` (الصلاحيات المطبّقة بالكامل للصلاحيات)
-
-```typescript
-interface UserPermissions {
-  inventory: {
-    view: boolean;
-    add: boolean;
-    edit: boolean;
-    delete: boolean;
-    viewCostPrice: boolean;
-  };
-  orders: {
-    view: boolean;
-    add: boolean;
-    edit: boolean;
-    delete: boolean;
-    changeStatus: boolean;
-    viewAll: boolean;
-  };
-  delivery: {
-    view: boolean;
-    addShipment: boolean;
-    manageCompanies: boolean;
-    viewSettlements: boolean;
-    addSettlement: boolean;
-  };
-  treasury: { view: boolean; addTransaction: boolean };
-  partners: { view: boolean; viewOwn: boolean };
-  hr: { view: boolean; viewOwn: boolean };
-  analytics: { view: boolean; viewFull: boolean };
-  settings: { view: boolean; edit: boolean };
-}
+```sql
+CREATE TABLE public.tenants (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  owner_id UUID REFERENCES public.profiles(id),
+  plan TEXT DEFAULT 'basic',
+  is_active BOOLEAN DEFAULT true,
+  city TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
 ---
-
-## ══════════════════════════════════════════
 
 ## 📦 وحدة المخزون والطلبيات
 
-## ══════════════════════════════════════════
+### `products` (المنتجات)
 
-### `Product` (المنتجات)
-
-```typescript
-interface Product {
-  id: string;
-  tenantId: string;
-  name: string;
-  category: string; // "منتج عادي" | "أحذية" | "ملابس" | أو اسم الصنف المخصص
-  unit: string;
-  costPrice: number; // مرتبطة مباشرة بإدخالات الخزينة وحركاتها المالية التلقائية
-  sellingPrice: number;
-  quantity: number;
-  minQuantity: number;
-  isActive: boolean;
-  itemCode: string; // كود تلقائي يبدأ من 1000، يُعرض في الواجهة مع بادئة BN مثل BN1000
-  barcode?: string;
-  productType: "simple" | "clothing" | "shoes" | "custom";
-  variants?: {
-    id: string;
-    size?: string;
-    color?: string;
-    sku?: string;
-    attributes?: Record<string, string>;
-    quantity: number;
-  }[];
-  customAttributes?: { key: string; value: string }[];
-  attributeConfig?: { name: string; values: string[] }[]; // إعدادات الخصائص لتوليد المصفوفة
-}
+```sql
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT,
+  unit TEXT,
+  cost_price NUMERIC NOT NULL,
+  selling_price NUMERIC NOT NULL,
+  quantity INTEGER NOT NULL,
+  min_quantity INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  item_code TEXT UNIQUE,
+  barcode TEXT,
+  product_type TEXT,
+  variants JSONB,
+  custom_attributes JSONB
+);
 ```
 
-### `Order` (المبيعات)
+### `orders` (الطلبيات/المبيعات)
 
-```typescript
-interface Order {
-  id: string;
-  tenantId: string;
-  orderNumber: string;
-  customerName: string;
-  customerPhone: string;
-  total: number;
-  status: "pending" | "delivered" | "cancelled";
-  courierId?: string; // يتم ربط الطلبية بشركة توصيل (إلزامي إذا تم التوصيل الخارجي)
-  shipmentTracking?: string;
-  createdBy: string; // إجباري — يجب تعبئته عند إنشاء الطلبية
-  createdAt: string;
+```sql
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  order_number TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_city TEXT,
+  delivery_type TEXT,
+  courier_company_id UUID,
+  delivery_fee NUMERIC DEFAULT 0,
+  status TEXT NOT NULL, -- 'pending', 'processing', 'with_courier', 'delivered', etc.
+  price_includes_delivery BOOLEAN DEFAULT false,
+  subtotal NUMERIC NOT NULL,
+  discount NUMERIC DEFAULT 0,
+  total NUMERIC NOT NULL,
+  payment_status TEXT DEFAULT 'pending',
+  items JSONB NOT NULL, -- مصفوفة العناصر المباعة مع أسعار الوحدة والكميات
+  created_at TIMESTAMPTZ DEFAULT now(),
+  vanex_package_code TEXT,
+  vanex_city_id INTEGER
+);
+```
 
-  // ══ حقول شركات التوصيل الخارجية ══
-  courier_raw_status?: string;      // حالة الشركة التفصيلية — للعرض فقط لا تؤثر على الخزينة
-  is_online_payable?: boolean;      // دفع إلكتروني عبر المندوب (عمولة 2% في التسويات)
-  commission_by?: 'customer' | 'market'; // من يدفع رسوم التوصيل
-  extra_size_by?: 'customer' | 'market'; // من يدفع رسوم الحجم الزائد
-  prepaid_amount?: number;          // مبلغ دفعه الزبون مسبقاً (حوالة)
-  partial_delivery?: boolean;       // تسليم جزئي مفعّل
-  vanex_package_code?: string;      // كود الشحنة في VanEx مثال: VNX123456
-  vanex_package_id?: number;        // ID الداخلي في VanEx
-}
+### `customers` (الزبائن)
+
+```sql
+CREATE TABLE customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  city TEXT,
+  address TEXT,
+  total_orders INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
 ---
 
-## ══════════════════════════════════════════
+## 🚚 وحدة التوصيل والتسويات (Couriers & Geo-Mappings)
 
-## 🚚 وحدة التوصيل والتسويات (Courier Companies)
+### `couriers` (شركات التوصيل)
+تُستعمل للإدارة الداخلية وربط الـ API Adapter.
 
-## ══════════════════════════════════════════
+```sql
+CREATE TABLE couriers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  name TEXT NOT NULL,
+  provider TEXT, -- 'vanex', 'aramex', 'manual'
+  api_provider TEXT,
+  is_api_connected BOOLEAN,
+  is_active BOOLEAN DEFAULT true,
+  default_delivery_fee NUMERIC,
+  api_credentials JSONB -- { email, passwordHash, token, tokenExpiresAt, vanexFromRegionId }
+);
+```
+*(ملاحظة: كود الـ Adapter الخاص بـ VanEx في `src/core/delivery/VanexAdapter.ts` يعالج التسميات الخاطئة الخاصة بـ API فانكس ويجدد الـ token ديناميكياً ليحفظه مرة أخرى في `api_credentials`)*
 
-### `CourierCompany` (الشركات)
+### `provider_geo_mappings` (ربط المدن بين بنيان والمزودين)
 
-```typescript
-interface CourierCompany {
-  id: string;
-  tenantId: string;
-  name: string;
-  defaultDeliveryFee: number; // رسوم التوصيل الافتراضية
-
-  pricingZones: {
-    zone: string;
-    fee: number;
-  }[];
-
-  requiredFields: {
-    key: string;
-    label: string;
-    type: string;
-    required: boolean;
-  }[];
-
-  totalShipments: number;
-  totalDelivered: number;
-  totalReturned: number;
-  pendingAmount: number; // ديون عالقة بحوزة الشركة قيد التحصيل
-
-  isActive: boolean;
-
-  // ══ حقول ربط الـ API ══
-  apiProvider?: 'vanex' | 'mock' | 'none';
-  isApiConnected?: boolean;
-  connectionStatus?: 'connected' | 'disconnected' | 'error' | 'pending';
-  apiCredentials?: {
-    email?: string;
-    passwordHash?: string;   // btoa(password) مؤقتاً
-    merchantCode?: string;
-    token?: string;
-    tokenExpiresAt?: string;
-  };
-}
+```sql
+CREATE TABLE provider_geo_mappings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  provider_city_id INTEGER NOT NULL,
+  provider_region_id INTEGER,
+  bunyan_city_id INTEGER REFERENCES bunyan_cities(id),
+  bunyan_region_id INTEGER REFERENCES bunyan_regions(id),
+  parent_mapping_id UUID,
+  is_active BOOLEAN DEFAULT true,
+  UNIQUE(provider, provider_city_id, provider_region_id)
+);
 ```
 
-### `IDeliveryProvider` (واجهة محوّلات التوصيل)
-
-الملف: src/core/delivery/IDeliveryProvider.ts
-
-الشركات المدعومة حالياً:
-- MockShippingAdapter (للتطوير والاختبار)
-- VanexAdapter (VanEx API v1 — Production: https://app.vanex.ly/api/v1)
-
-للإضافة شركة جديدة: أنشئ src/core/delivery/[Name]Adapter.ts 
-يُطبّق IDeliveryProvider ويستدعيه getDeliveryAdapter() في index.ts
-
-
 ---
 
-## ══════════════════════════════════════════
+## 💰 المالية والخزينة (Treasury)
 
-## 🤝 وحدة الشركاء وديون الاستحقاق
+### `treasury_accounts` (حسابات الخزينة)
 
-## ══════════════════════════════════════════
-
-### `Partner` (الشركاء)
-
-ملاحظة هامة: المنطق الرياضي في الـ UI يمنع إجمالي الـ `profitPercentage` لجميع الشركاء من تجاوز 100%.
-
-```typescript
-interface Partner {
-  id: string;
-  tenantId: string;
-  name: string;
-  phone: string;
-  profitPercentage: number; // يجب أن يخضع للحد الأقصى (الكمية المتبقية من 100%)
-  capitalContribution: number;
-  deliveryFeePerOrder?: number; // رسوم التوصيل لكل طلبية
-  walletBalance: number;
-  debtBalance: number;
-  isActive: boolean;
-}
+```sql
+CREATE TABLE treasury_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  account_type TEXT, -- 'cash_in_hand', 'bank'
+  account_name TEXT NOT NULL,
+  balance NUMERIC DEFAULT 0
+);
 ```
 
-### `Debt` (الديون)
+### `treasury_transactions` (الحركات المالية)
+**ملاحظة هامة جداً:** هذا الجدول **لا** يحتوي على عمود `reference_type` (تم حذفه وتنقيح الكود التشخيصي ليستغني عنه، يتم تقييم الـ description بدلاً منه أو إضافة meta data في JSON إذا لزم).
 
-````typescript
-interface Debt {
-  id: string;
-  tenantId: string;
-  debtType: "internal" | "external";
-  debtCategory:
-    | "custody"
-    | "partner_advance"
-    | "employee_advance"
-    | "supplier"
-    | "customer";
-  linkedEntityId?: string; // ID الموظف أو الشريك المرتبط
-  linkedEntityType?: "employee" | "partner" | "supplier" | "customer";
-  linkedEntityName: string;
-  sourceReference?: string; // رقم الفاتورة/الطلبية
-  amount: number;
-  paidAmount: number;
-  paymentHistory: { id: string; amount: number; date: string; note?: string }[];
-  dueDate: string;
-  status: "active" | "partial" | "paid";
-  description: string;
-  createdAt: string;
-}
-
-### `TreasuryTransaction` (الحركات المالية)
-
-```typescript
-interface TreasuryTransaction {
-  id: string;
-  tenantId: string;
-  accountId: string;
-  transactionType: "income" | "expense" | "sale" | "courier_settlement" | "partner_withdrawal" | "profit_distribution_record";
-  amount: number;
-  description: string;
-  createdBy: string; // إجباري — يجب تعبئته عند تسجيل الحركة المالية
-  createdAt: string;
-  transactionDate: string;
-}
-````
-
-````
+```sql
+CREATE TABLE treasury_transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  account_id UUID REFERENCES treasury_accounts(id),
+  transaction_type TEXT NOT NULL, -- 'income', 'expense', 'sale'
+  amount NUMERIC NOT NULL,
+  description TEXT,
+  transaction_date TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
 
 ---
 
-## ══════════════════════════════════════════
+## ⚖️ أدوات الحماية والتشخيص (Diagnostic Suite)
 
-## 👥 الموارد البشرية (HR)
+يعتمد الهيكل الآن على `SystemDiagnostics v3.0.0` الذي ينفذ:
+1. **Schema Guard:** `SELECT * FROM (table) LIMIT 1` (Live Probing) كأداة حية للتأكد من وجود الأعمدة المطلوبة بشكل فعلي (بدل information_schema لمنع أخطاء الـ 캐싱).
+2. **Financial Integrations:** التأكد من توازن الأرصدة (Treasury balance = initial + sum(transactions)).
+3. **Idempotency Check:** فحص القيود لمنع Double Spending وتسجيل أخطاء PostgreSQL 23505 (Unique Violation) كنجاح للـ Idempotency.
 
-## ══════════════════════════════════════════
-
-### `Employee` (الموظفون)
-
-ملاحظة: عند إضافة موظف إلى هذا الكيان يتم آلياً إرسال طلب لدالة `addUser` لصناعة `TenantUser` له بالمنظومة للتمكن من تسجيل الدخول والمياشرة.
-
-```typescript
-interface Employee {
-  id: string;
-  tenantId: string;
-  name: string;
-  phone: string;
-  role: string;
-  salary: number;
-  advanceBalance: number;
-  isActive: boolean;
-}
-````
-
----
-
-## 💎 خطة التنفيذ لقواعد البيانات (Supabase Migration Plan)
-
-بمجرد التحويل للسحابة، سيصبح هذا الهيكل هو جداول الـ `tables` التابعة لمخطط PostgreSQL:
-
-1. سيستبدل `TenantUser` بأساسيات `auth.users` مع تعزيزها بـ Metadata.
-2. ستُستخدم تقنية الـ **RLS (Row Level Security)** لتأكيد عزل `tenantId` بين التجار.
-3. استبدال `Array` الـ `Zustand` بالـ `Hooks (React Query + Supabase Async)` لتقليل التحميل اللانهائي أثناء عمل الـ Client.
+**نهاية الملف**

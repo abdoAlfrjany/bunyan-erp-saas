@@ -1,0 +1,203 @@
+// src/app/api/webhooks/vanex/route.ts
+// الوظيفة: استقبال تحديثات حالة الشحنات من Vanex في الوقت الفعلي
+// 🔒 محمي بـ token سري (VANEX_WEBHOOK_SECRET)
+// ✅ return 200 دائماً — لمنع إعادة المحاولة اللانهائية من Vanex
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const VANEX_WEBHOOK_SECRET = process.env.VANEX_WEBHOOK_SECRET;
+
+// ── نفس mapping الموجود في VanexAdapter.ts ──
+const VANEX_TO_BUNYAN_STATUS: Record<string, string> = {
+  store_canceled:  'cancelled',
+  pending:         'pending',
+  shipped:         'with_courier',
+  on_track:        'with_courier',
+  enable_delivery: 'with_courier',
+  delivered:       'delivered',
+  complete:        'delivered',
+  returned:        'return_confirmed',
+  cancelled:       'cancelled',
+};
+
+export async function POST(req: NextRequest) {
+  let logId: string | null = null;
+
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+
+  try {
+    const body = await req.json();
+
+    // ── 1. التحقق من Token ──
+    const incomingToken =
+      req.headers.get('x-webhook-token') ?? body.token ?? null;
+
+    if (!VANEX_WEBHOOK_SECRET || incomingToken !== VANEX_WEBHOOK_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ── 2. استخراج البيانات ──
+    const code: string | null =
+      body['package-code'] ??
+      body.package_code ??
+      body.data?.['package-code'] ??
+      null;
+
+    const rawStatus: string =
+      body.status_object?.status_value ??
+      body.status ??
+      'unknown';
+
+    const bunyanStatus: string =
+      VANEX_TO_BUNYAN_STATUS[rawStatus] ?? 'with_courier';
+
+    // ── 3. تسجيل الـ webhook فوراً ──
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from('webhook_logs')
+      .insert({
+        source: 'vanex',
+        event_type: rawStatus,
+        vanex_package_code: code,
+        payload: body,
+        processed: false,
+      })
+      .select('id')
+      .single();
+
+    if (!logError && logData) {
+      logId = logData.id;
+    }
+
+    // ── 4. إذا لم يوجد كود الشحنة ──
+    if (!code) {
+      if (logId) {
+        await supabaseAdmin
+          .from('webhook_logs')
+          .update({ error: 'missing package-code' })
+          .eq('id', logId);
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // ── 5. Idempotency — منع المعالجة المزدوجة ──
+    const { data: existingLog } = await supabaseAdmin
+      .from('webhook_logs')
+      .select('id')
+      .eq('vanex_package_code', code)
+      .eq('event_type', rawStatus)
+      .eq('processed', true)
+      .neq('id', logId ?? '')
+      .limit(1)
+      .single();
+
+    if (existingLog) {
+      // تم المعالجة مسبقاً
+      return NextResponse.json({ success: true });
+    }
+
+    // ── 6. البحث عن الطلبية ──
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .select('id, tenant_id, status, items, courier_raw_status')
+      .eq('vanex_package_code', code)
+      .limit(1)
+      .single();
+
+    if (orderError || !order) {
+      if (logId) {
+        await supabaseAdmin
+          .from('webhook_logs')
+          .update({ error: `order not found: ${code}` })
+          .eq('id', logId);
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // ── 7. معالجة كل حالة ──
+
+    if (bunyanStatus === 'pending') {
+      // لا تحديث للطلبية — فقط تسجيل
+    } else if (bunyanStatus === 'with_courier' || bunyanStatus === 'delivered') {
+      // تحديث الحالة فقط — لا مخزون، لا مالي
+      // الأموال تُعالج عبر التسويات (Settlements) فقط
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          courier_raw_status: rawStatus,
+          status: bunyanStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+    } else if (bunyanStatus === 'return_confirmed' || bunyanStatus === 'cancelled') {
+      // تحديث الحالة
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          courier_raw_status: rawStatus,
+          status: bunyanStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      // استرداد المخزون
+      const items = Array.isArray(order.items) ? order.items : [];
+      if (items.length > 0) {
+        const restorePayload = items.map((i: any) => ({
+          product_id: i.productId,
+          qty: i.quantity,
+          variant_size: i.variantSize || null,
+        }));
+
+        const { error: rpcError } = await supabaseAdmin.rpc('restore_inventory', {
+          items_payload: restorePayload,
+        });
+
+        if (rpcError) {
+          console.error('[Webhook Vanex] restore_inventory failed:', rpcError.message);
+          if (logId) {
+            await supabaseAdmin
+              .from('webhook_logs')
+              .update({ error: 'inventory restore failed: ' + rpcError.message })
+              .eq('id', logId);
+          }
+          // لا نوقف الـ webhook — نكمل
+        }
+      }
+    }
+
+    // ── 8. تحديث سجل الـ webhook كمعالَج ──
+    if (logId) {
+      await supabaseAdmin
+        .from('webhook_logs')
+        .update({
+          processed: true,
+          tenant_id: order.tenant_id,
+        })
+        .eq('id', logId);
+    }
+
+    return NextResponse.json({ success: true });
+
+  } catch (err: any) {
+    console.error('[POST /api/webhooks/vanex] Error:', err);
+
+    // تسجيل الخطأ في webhook_logs إذا أمكن
+    if (logId) {
+      try {
+        await supabaseAdmin
+          .from('webhook_logs')
+          .update({ error: err.message ?? 'unknown error' })
+          .eq('id', logId);
+      } catch (_) {}
+    }
+
+    // دائماً return 200 — Vanex يعيد المحاولة عند أي خطأ
+    return NextResponse.json({ success: true });
+  }
+}

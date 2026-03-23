@@ -6,20 +6,24 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useUser } from '@/core/auth/hooks';
+import { useAllCouriers, useGetForTenant } from '@/core/db/hooks';
 import { BarChart3, TrendingUp, Award, Activity } from 'lucide-react';
 
 export default function DeliveryAnalyticsPage() {
-  const { user } = useAuthStore();
-  const { couriers, getForTenant } = useDataStore();
+  const user = useUser();
+  const couriers = useAllCouriers();
+  const getForTenant = useGetForTenant();
   const tid = user?.tenantId || '';
-  const myCouriers = getForTenant(couriers, tid).filter((c) => c.isActive);
+  const myCouriers = useMemo(() => getForTenant(couriers, tid).filter((c) => c.isActive), [couriers, tid, getForTenant]);
 
   const stats = useMemo(() => myCouriers.map((c) => {
-    const deliveryRate = c.totalShipments > 0 ? ((c.totalDelivered / c.totalShipments) * 100) : 0;
-    const returnRate = c.totalShipments > 0 ? ((c.totalReturned / c.totalShipments) * 100) : 0;
-    return { ...c, deliveryRate, returnRate };
+    const tShipments = c.totalShipments || 0;
+    const tDelivered = c.totalDelivered || 0;
+    const tReturned = c.totalReturned || 0;
+    const deliveryRate = tShipments > 0 ? ((tDelivered / tShipments) * 100) : 0;
+    const returnRate = tShipments > 0 ? ((tReturned / tShipments) * 100) : 0;
+    return { ...c, deliveryRate, returnRate, totalShipments: tShipments, totalDelivered: tDelivered, totalReturned: tReturned };
   }).sort((a, b) => b.deliveryRate - a.deliveryRate), [myCouriers]);
 
   const best = stats[0];
@@ -28,7 +32,7 @@ export default function DeliveryAnalyticsPage() {
     <div className="space-y-6 animate-fade-in pb-10">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
             <BarChart3 size={24} className="text-bunyan-600" />
             تحليلات الأداء للشركات
           </h1>
@@ -122,7 +126,7 @@ export default function DeliveryAnalyticsPage() {
 
       {stats.length === 0 && (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-200 mt-6">
-          <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-gray-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-gray-100 shadow-sm">
             <BarChart3 size={28} className="text-gray-400" />
           </div>
           <p className="text-base font-bold text-gray-900 mb-1">لا توجد بيانات أداء حتى الآن</p>

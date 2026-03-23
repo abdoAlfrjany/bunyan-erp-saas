@@ -5,9 +5,13 @@
 
 'use client';
 
-import React, { useState } from 'react';
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import React, { useState, useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useProductsQuery } from '@/core/db/hooks/useProducts';
+import { useOrdersQuery } from '@/core/db/hooks/useOrders';
+import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
+import { useQueryClient } from '@tanstack/react-query';
+import { useGetForTenant, useAddProduct, useUpdateProduct, useDeleteProduct, useAddCustomUnit } from '@/core/db/hooks';
 import { formatCurrency, formatNumber } from '@/shared/utils/format';
 import { STOCK_STATUS, getStockStatus, getStatusBadgeClasses } from '@/shared/utils/statusColors';
 import { SlideOver } from '@/shared/components/ui/SlideOver';
@@ -265,17 +269,32 @@ const SmartVariantPopover = ({
   );
 };
 
+
 export default function InventoryPage() {
-  const { user } = useAuthStore();
-  const { showToast } = useToast();
-  const { products, treasury, orders, getForTenant, addProduct, updateProduct, deleteProduct } = useDataStore();
+  const user = useUser();
   const tid = user?.tenantId || '';
+  const queryClient = useQueryClient();
+  
+  // ── React Query لجلب البيانات ──
+  const { data: rawProducts = [], isLoading: isProductsLoading } = useProductsQuery(tid);
+  const { data: orders = [] } = useOrdersQuery(tid);
+  const { data: treasuryData } = useTreasuryQuery(tid);
+  const treasury = treasuryData?.accounts || [];
+
+  const getForTenant = useGetForTenant();
+  const addProduct = useAddProduct();
+  const updateProduct = useUpdateProduct();
+  const deleteProduct = useDeleteProduct();
+  const addCustomUnit = useAddCustomUnit();
+  const { showToast } = useToast();
+  
   const isOwner = user?.role === 'owner';
   const canViewCost = isOwner || user?.permissions?.inventory?.viewCostPrice;
   const canAddEdit = isOwner || user?.permissions?.inventory?.add || user?.permissions?.inventory?.edit;
   const canDelete = isOwner || user?.permissions?.inventory?.delete;
 
-  const myProducts = getForTenant(products, tid).filter(p => p.isActive);
+  // Since React Query handles tenant filtering locally via the query, we just filter active ones
+  const myProducts = useMemo(() => rawProducts.filter(p => p.isActive), [rawProducts]);
   const customCategories = Array.from(new Set(myProducts.map(p => p.category)))
     .filter(c => !['منتج عادي','ملابس','أحذية','عادي','simple','clothing','shoes'].includes(c) && c);
 
@@ -352,7 +371,7 @@ export default function InventoryPage() {
   const isCostExceeding = addQtyTarget?.productType === 'simple' ? totalSimpleCost > availableBalance : totalVariantsCost > availableBalance;
 
   // ════ التحليلات (Insights) ════
-  const myOrders = getForTenant(orders, tid);
+  const myOrders = useMemo(() => getForTenant(orders, tid), [orders, tid, getForTenant]);
   let insightSalesQty = 0;
   let insightRevenue = 0;
 
@@ -429,6 +448,10 @@ export default function InventoryPage() {
       updateProduct(addQtyTarget.id, {
         quantity: oldQty + amount,
         costPrice: Math.round(newCostPrice),
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['products', tid] });
+        queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
+        showToast(`تم تعزيز المخزون بنجاح (+${amount})`, 'success');
       });
       
       if (oldQty + amount <= addQtyTarget.minQuantity) {
@@ -464,13 +487,16 @@ export default function InventoryPage() {
         ? ((oldQty * oldCost) + (totalAdded * purchasePrice)) / (oldQty + totalAdded)
         : purchasePrice;
 
-      updateProduct(addQtyTarget.id, { 
+      updateProduct(addQtyTarget.id, {
+        variants: newVariants,
         quantity: oldQty + totalAdded,
         costPrice: Math.round(newCostPrice),
-        variants: newVariants
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['products', tid] });
+        queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
+        const totalAddedCostVariant = totalAdded * purchasePrice;
+        showToast(`تمت إضافة ${totalAdded} قطعة لـ "${addQtyTarget.name}" ✅ — خُصم ${totalAddedCostVariant} د.ل — WAC الجديد: ${Math.round(newCostPrice)} د.ل`, 'success');
       });
-      const totalAddedCostVariant = totalAdded * purchasePrice;
-      showToast(`تمت إضافة ${totalAdded} قطعة لـ "${addQtyTarget.name}" ✅ — خُصم ${totalAddedCostVariant} د.ل — WAC الجديد: ${Math.round(newCostPrice)} د.ل`, 'success');
     }
 
     setAddQtyTarget(null);
@@ -480,14 +506,26 @@ export default function InventoryPage() {
     setShowPriceField(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteTarget) {
-      const res = deleteProduct(deleteTarget.id);
+      const res = await deleteProduct(deleteTarget.id);
       setDeleteTarget(null);
-      if (res.success) showToast('تم حذف المنتج بنجاح', 'success');
-      else showToast(res.error || 'لا يمكن حذف المنتج', 'error');
+      if (res.success) {
+        queryClient.invalidateQueries({ queryKey: ['products', tid] });
+        showToast('تم حذف المنتج بنجاح', 'success');
+      } else {
+        showToast(res.error || 'لا يمكن حذف المنتج', 'error');
+      }
     }
   };
+
+  const { isLowStock, isTrending, topVariantId } = (() => {
+    if (!insightTarget) return { isLowStock: false, isTrending: false, topVariantId: null };
+    const low = insightTarget.quantity < insightTarget.minQuantity;
+    const trending = insightSalesQty > 0 && insightSalesQty >= Math.max(10, insightTarget.quantity * 0.3);
+    const top = insightTarget.variants?.[0]?.id || null; // Simplified for stability
+    return { isLowStock: low, isTrending: trending, topVariantId: top };
+  })();
 
   const filters: { key: Filter; label: string; count?: number; colorClass?: string; dotColor?: string }[] = [
     { key: 'all', label: `الكل (${myProducts.length})` },
@@ -504,6 +542,7 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Package size={24} className="text-bunyan-600" />
             المخزون والعهدة
+            {isProductsLoading && <span className="w-4 h-4 border-2 border-bunyan-500 border-t-transparent rounded-full animate-spin ml-2"></span>}
           </h1>
           <p className="text-sm text-gray-500 mt-1">إدارة المنتجات، الكميات، والتسعير</p>
         </div>
@@ -737,13 +776,20 @@ export default function InventoryPage() {
           </table>
         </div>
         
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !isProductsLoading && (
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <Package size={28} className="text-gray-400" />
             </div>
             <p className="text-base font-bold text-gray-900 mb-1">لا توجد منتجات مطابقة</p>
             <p className="text-sm text-gray-500">جرب البحث بكلمات مختلفة أو إزالة الفلاتر النشطة.</p>
+          </div>
+        )}
+
+        {isProductsLoading && (
+          <div className="text-center py-16">
+            <div className="w-12 h-12 border-4 border-bunyan-100 border-t-bunyan-600 rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-sm text-gray-500 font-bold">جاري تحميل المنتجات...</p>
           </div>
         )}
       </div>
@@ -770,7 +816,10 @@ export default function InventoryPage() {
       {/* إضافة / تعديل منتج (المكون الجديد) */}
       <AddProductSlideOver 
         isOpen={slideOpen} 
-        onClose={() => { setSlideOpen(false); setEditProduct(null); }} 
+        onClose={() => { 
+          setSlideOpen(false); 
+          setEditProduct(null); 
+        }} 
         editProduct={editProduct}
       />
 
@@ -1135,191 +1184,142 @@ export default function InventoryPage() {
         onClose={() => setInsightTarget(null)}
         title="أداء وتحليلات المنتج"
       >
-        {insightTarget && (() => {
-          const isLowStock = insightTarget.quantity < insightTarget.minQuantity;
-          const isTrending = insightSalesQty > 0 && insightSalesQty >= Math.max(10, insightTarget.quantity * 0.3);
-          // أعلى متغير من حيث الكمية
-          const topVariantId = insightTarget.variants?.length
-            ? [...insightTarget.variants].sort((a, b) => b.quantity - a.quantity)[0]?.id
-            : null;
+        {insightTarget ? (
+          <div className="pb-16 space-y-0">
+            {/* ━━━ GRADIENT HEADER ━━━ */}
+            <div className="relative px-6 pt-6 pb-8 bg-gradient-to-br from-bunyan-900 to-bunyan-700 overflow-hidden">
+              <div className="absolute -top-6 -left-6 w-28 h-28 rounded-full bg-white/5" />
+              <div className="absolute top-2 left-16 w-14 h-14 rounded-full bg-white/5" />
 
-          return (
-            <div className="pb-16 space-y-0">
-
-              {/* ━━━ GRADIENT HEADER ━━━ */}
-              <div className="relative px-6 pt-6 pb-8 bg-gradient-to-br from-bunyan-900 to-bunyan-700 overflow-hidden">
-                {/* decorative circles */}
-                <div className="absolute -top-6 -left-6 w-28 h-28 rounded-full bg-white/5" />
-                <div className="absolute top-2 left-16 w-14 h-14 rounded-full bg-white/5" />
-
-                {/* Status Badge */}
-                <div className="flex justify-between items-start mb-4">
-                  <div />
-                  {isLowStock ? (
-                    <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 animate-pulse">
-                      ⚠️ مخزون منخفض
-                    </span>
-                  ) : isTrending ? (
-                    <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                      🔥 منتج رائج
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/10 text-white/60 border border-white/15">
-                      متوسط الحركة
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
-                    <Package size={24} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-white leading-tight">{insightTarget.name}</h3>
-                    <p className="text-sm text-white/60 font-mono mt-0.5">BN{insightTarget.itemCode}</p>
-                  </div>
-                </div>
+              <div className="flex justify-between items-start mb-4">
+                <div />
+                {isLowStock ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 animate-pulse">
+                    ⚠️ مخزون منخفض
+                  </span>
+                ) : isTrending ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    🔥 منتج رائج
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/10 text-white/60 border border-white/15">
+                    متوسط الحركة
+                  </span>
+                )}
               </div>
 
-              {/* ━━━ KPI CARDS ━━━ */}
-              <div className="px-4 -mt-4 relative z-10">
-                <div className="grid grid-cols-2 gap-3">
-                  {/* المخزون */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
-                    <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center">
-                      <Package size={18} className="text-gray-500" />
-                    </div>
-                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">المخزون</p>
-                    <p className="text-3xl font-black text-gray-900 leading-none">{formatNumber(insightTarget.quantity)}</p>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200 rounded-b-2xl" />
-                  </div>
-
-                  {/* المبيعات */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
-                    <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
-                      <TrendingUp size={18} className="text-blue-500" />
-                    </div>
-                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">المبيعات</p>
-                    <p className="text-3xl font-black text-gray-900 leading-none">{formatNumber(insightSalesQty)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold">↑ إجمالي الوحدات المباعة</p>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500 rounded-b-2xl" />
-                  </div>
-
-                  {/* الإيراد */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
-                    <div className="w-9 h-9 rounded-xl bg-bunyan-50 flex items-center justify-center">
-                      <DollarSign size={18} className="text-bunyan-600" />
-                    </div>
-                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">الإيراد</p>
-                    <p className="text-xl font-black text-gray-900 leading-none font-currency">{formatCurrency(insightRevenue)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold">↑ إجمالي المبيعات</p>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-bunyan-600 rounded-b-2xl" />
-                  </div>
-
-                  {/* الربح */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
-                      <BarChart2 size={18} className="text-emerald-600" />
-                    </div>
-                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">هامش الربح</p>
-                    <p className="text-xl font-black text-gray-900 leading-none font-currency">{formatCurrency(insightProfit)}</p>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500 rounded-b-2xl" />
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+                  <Package size={24} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white leading-tight">{insightTarget.name}</h3>
+                  <p className="text-sm text-white/60 font-mono mt-0.5">BN{insightTarget.itemCode}</p>
                 </div>
               </div>
+            </div>
 
-              {/* ━━━ CHART ━━━ */}
-              <div className="px-4 mt-4">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <TrendingUp size={16} className="text-bunyan-600" />
-                    <p className="text-sm font-bold text-gray-800">المبيعات — آخر ٧ أيام</p>
+            {/* ━━━ KPI CARDS ━━━ */}
+            <div className="px-4 -mt-4 relative z-10">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
+                  <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center">
+                    <Package size={18} className="text-gray-500" />
                   </div>
-                  <ResponsiveContainer width="100%" height={130}>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">المخزون</p>
+                  <p className="text-3xl font-black text-gray-900 leading-none">{formatNumber(insightTarget.quantity)}</p>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200 rounded-b-2xl" />
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
+                  <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+                    <TrendingUp size={18} className="text-blue-500" />
+                  </div>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">المبيعات</p>
+                  <p className="text-3xl font-black text-gray-900 leading-none">{formatNumber(insightSalesQty)}</p>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500 rounded-b-2xl" />
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
+                  <div className="w-9 h-9 rounded-xl bg-bunyan-50 flex items-center justify-center">
+                    <DollarSign size={18} className="text-bunyan-600" />
+                  </div>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">الإيراد</p>
+                  <p className="text-xl font-black text-gray-900 leading-none font-currency">{formatCurrency(insightRevenue)}</p>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-bunyan-600 rounded-b-2xl" />
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2 overflow-hidden relative">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+                    <BarChart2 size={18} className="text-emerald-600" />
+                  </div>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">هامش الربح</p>
+                  <p className="text-xl font-black text-gray-900 leading-none font-currency">{formatCurrency(insightProfit)}</p>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500 rounded-b-2xl" />
+                </div>
+              </div>
+            </div>
+
+            {/* ━━━ CHART ━━━ */}
+            <div className="px-4 mt-4">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp size={16} className="text-bunyan-600" />
+                  <p className="text-sm font-bold text-gray-800">المبيعات — آخر ٧ أيام</p>
+                </div>
+                <div className="h-[130px] w-full mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={insightChartData} barSize={20}>
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fontSize: 10, fill: '#9ca3af', fontWeight: 600 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
+                      <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af', fontWeight: 600 }} axisLine={false} tickLine={false} />
                       <YAxis hide />
                       <Tooltip
                         formatter={(val: number | undefined) => [`${val ?? 0} وحدة`, 'المبيعات']}
-                        contentStyle={{
-                          fontSize: 12,
-                          borderRadius: 10,
-                          border: 'none',
-                          background: '#1e1b4b',
-                          color: '#fff',
-                          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
-                        }}
-                        labelStyle={{ color: '#c4b5fd', fontWeight: 700 }}
-                        itemStyle={{ color: '#fff' }}
-                        cursor={{ fill: '#7c3aed10' }}
+                        contentStyle={{ fontSize: 12, borderRadius: 10, border: 'none', background: '#1e1b4b', color: '#fff' }}
                       />
                       <Bar dataKey="qty" fill="#7C3AED" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
-
-              {/* ━━━ VARIANTS ━━━ */}
-              {insightTarget.variants && insightTarget.variants.length > 0 && (
-                <div className="px-4 mt-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex-1 h-px bg-gray-100" />
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">التحليل التفصيلي للمقاسات</h4>
-                    <div className="flex-1 h-px bg-gray-100" />
-                  </div>
-                  <div className="space-y-2.5">
-                    {[...insightTarget.variants]
-                      .sort((a, b) => b.quantity - a.quantity)
-                      .map((v) => {
-                        const totalQty = insightTarget.quantity;
-                        const percentage = totalQty > 0 ? Math.round((v.quantity / totalQty) * 100) : 0;
-                        const isTop = v.id === topVariantId;
-                        return (
-                          <div key={v.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-sm">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-bold text-gray-900 text-sm flex items-center gap-1">
-                                {isTop && <span className="text-yellow-400 text-base">⭐</span>}
-                                {v.size}{v.color ? ` — ${v.color}` : ''}
-                              </span>
-                              <span className="text-xs font-bold text-gray-500">{v.quantity} وحدة · {percentage}%</span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-bunyan-600 rounded-full transition-all"
-                                style={{ width: `${percentage}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Close button */}
-              <div className="px-4 mt-6">
-                <button
-                  onClick={() => setInsightTarget(null)}
-                  className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors text-sm"
-                >
-                  إغلاق التحليلات
-                </button>
-              </div>
-
-              {insightSalesQty === 0 && (
-                <div className="text-center py-6 text-gray-400 text-sm">
-                  📦 لا توجد مبيعات لهذا المنتج بعد
-                </div>
-              )}
-
             </div>
-          );
-        })()}
+
+            {/* ━━━ VARIANTS ━━━ */}
+            {insightTarget.variants && insightTarget.variants.length > 0 && (
+              <div className="px-4 mt-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex-1 h-px bg-gray-100" />
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider text-center">التحليل التفصيلي للمقاسات</h4>
+                  <div className="flex-1 h-px bg-gray-100" />
+                </div>
+                <div className="space-y-2.5">
+                  {insightTarget.variants.map((v) => {
+                    const percentage = insightTarget.quantity > 0 ? Math.round((v.quantity / insightTarget.quantity) * 100) : 0;
+                    return (
+                      <div key={v.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-bold text-gray-900 text-sm">{v.size}{v.color ? ` — ${v.color}` : ''}</span>
+                          <span className="text-xs font-bold text-gray-500">{v.quantity} وحدة · {percentage}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-bunyan-600 rounded-full" style={{ width: `${percentage}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 mt-6">
+              <button
+                onClick={() => setInsightTarget(null)}
+                className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors text-sm"
+              >
+                إغلاق التحليلات
+              </button>
+            </div>
+          </div>
+        ) : null}
       </SlideOver>
     </div>
   );

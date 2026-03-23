@@ -1,18 +1,21 @@
 'use client';
 
-import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
+import { useMemo } from 'react';
+import { useUser } from '@/core/auth/hooks';
+import { useAllPartners, useAllDebts, useGetForTenant } from '@/core/db/hooks';
 import { formatCurrency } from '@/shared/utils/format';
 import { User, Wallet, PieChart, TrendingUp, HandCoins, ArrowRightLeft } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function PartnerAccountPage() {
-  const { user } = useAuthStore();
-  const { partners, getForTenant, debts } = useDataStore();
+  const user = useUser();
+  const partners = useAllPartners();
+  const debts = useAllDebts();
+  const getForTenant = useGetForTenant();
   
   const tid = user?.tenantId || '';
-  const myPartners = getForTenant(partners, tid);
-  const myDebts = getForTenant(debts, tid);
+  const myPartners = useMemo(() => getForTenant(partners, tid), [partners, tid, getForTenant]);
+  const myDebts = useMemo(() => getForTenant(debts, tid), [debts, tid, getForTenant]);
 
   // البحث عن الشريك المرتبط بهذا الحساب
   const partnerData = myPartners.find(p => p.name === user?.fullName || (user?.phone && p.phone === user?.phone));
@@ -102,7 +105,7 @@ export default function PartnerAccountPage() {
                   <h3 className="text-base font-bold text-gray-900 mb-6 flex items-center gap-2">
                       <TrendingUp size={18} className="text-amber-600" /> نمو الأرباح الموزعة (آخر 6 أشهر)
                   </h3>
-                  <div className="h-64 w-full" dir="ltr">
+                    <div className="h-[300px] w-full mt-4" dir="ltr">
                       <ResponsiveContainer width="100%" height="100%">
                           <AreaChart data={mockChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                               <defs>

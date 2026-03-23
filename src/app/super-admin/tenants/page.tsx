@@ -1,6 +1,5 @@
 // src/app/super-admin/tenants/page.tsx
-// الوظيفة: إدارة المتاجر للسوبر أدمن (عرض Grid، إضافة، إيقاف)
-// الصلاحية: SUPER_ADMIN فقط
+// إدارة المتاجر — High-Density Cards + Kebab Menu للإجراءات الخطيرة
 
 'use client';
 
@@ -9,13 +8,17 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/core/auth/store';
 import { useDataStore } from '@/core/db/store';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Store, CheckCircle2, XCircle, Search, Filter, Plus, Eye, Power, PowerOff, Building2, MapPin, Calendar, Clock } from 'lucide-react';
+import { EmptyState } from '@/shared/components/ui/EmptyState';
+import {
+  Store, CheckCircle2, Search, LogIn, PauseCircle,
+  MoreVertical, Pencil, MapPin, Calendar
+} from 'lucide-react';
 
-const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  trial: { label: 'تجريبية مجانية', color: 'text-gray-700', bg: 'bg-gray-100' },
-  basic: { label: 'أساسي', color: 'text-blue-700', bg: 'bg-blue-50' },
-  pro: { label: 'احترافي', color: 'text-bunyan-700', bg: 'bg-bunyan-50' },
-  lifetime: { label: 'تجريبية مجانية', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+const PLAN_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  trial:    { label: 'تجريبي',   color: 'text-gray-700',   bg: 'bg-gray-50',   border: 'border-gray-200' },
+  basic:    { label: 'أساسي',    color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200' },
+  pro:      { label: 'احترافي',  color: 'text-bunyan-700', bg: 'bg-bunyan-50', border: 'border-bunyan-200' },
+  lifetime: { label: 'مدى الحياة', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200' },
 };
 
 export default function SuperAdminTenants() {
@@ -23,167 +26,198 @@ export default function SuperAdminTenants() {
   const { enterTenantAsAdmin, user } = useAuthStore();
   const { tenants, toggleTenant, addAuditLog } = useDataStore();
   const { showToast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
-  const filteredTenants = tenants.filter(t => {
-    const matchesSearch = t.name.includes(searchTerm) || t.ownerName.includes(searchTerm) || t.ownerEmail.includes(searchTerm);
-    const matchesStatus = statusFilter === 'all' ? true : statusFilter === 'active' ? t.isActive : !t.isActive;
-    return matchesSearch && matchesStatus;
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'frozen'>('all');
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  const filtered = tenants.filter(t => {
+    const matchSearch = !searchTerm
+      || t.name.includes(searchTerm)
+      || t.ownerName.includes(searchTerm)
+      || t.ownerEmail.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchStatus =
+      statusFilter === 'all' ? true
+      : statusFilter === 'active' ? t.isActive
+      : !t.isActive;
+    return matchSearch && matchStatus;
   });
 
   const handleEnterTenant = (t: typeof tenants[0]) => {
     addAuditLog({
       id: `audit-${Date.now()}`,
-      adminId: user?.id || 'admin',
-      tenantId: t.id,
-      action: 'impersonate',
-      timestamp: new Date().toISOString()
+      adminId: user?.id ?? 'admin',
+      tenantId: t.id, action: 'impersonate',
+      timestamp: new Date().toISOString(),
     });
-    
-    showToast(`تم تسجيل الدخول بصلاحية المالك للمتجر: ${t.name}`, 'success');
+    showToast(`تم الدخول كمالك — ${t.name}`, 'success');
     enterTenantAsAdmin(t.id, t.name);
     router.push('/dashboard');
   };
 
+  const handleFreeze = (t: typeof tenants[0]) => {
+    toggleTenant(t.id);
+    showToast(t.isActive ? `تم تجميد ${t.name}` : `تم تفعيل ${t.name}`, t.isActive ? 'warning' : 'success');
+    setOpenMenu(null);
+  };
+
   return (
-    <div className="space-y-6 animate-fade-in pb-10">
+    <div
+      className="space-y-6 animate-fade-in pb-10"
+      onClick={() => setOpenMenu(null)}
+    >
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-gray-900">إدارة المتاجر</h1>
-          <p className="text-sm text-gray-500 mt-1">عرض وإدارة جميع المتاجر المسجلة في النظام.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {tenants.length} متجر مسجل — {tenants.filter(t => t.isActive).length} نشط
+          </p>
         </div>
-        <button className="px-4 py-2 bg-bunyan-600 hover:bg-bunyan-700 text-white rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm">
-          <Plus size={18} />
-          <span>متجر جديد</span>
-        </button>
       </div>
 
-      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute right-3 top-2.5 text-gray-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="البحث باسم المتجر أو المالك أو البريد..." 
+      {/* Filters */}
+      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm
+        flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute right-3 top-2.5 text-gray-400" size={16} />
+          <input
+            type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pr-10 pl-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/20 focus:bg-white transition-colors"
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="البحث باسم المتجر أو المالك..."
+            className="w-full pr-9 pl-4 py-2.5 bg-gray-50 border border-gray-200
+              rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/20
+              focus:bg-white transition-colors"
           />
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-          <Filter size={16} className="text-gray-400 shrink-0" />
-          <div className="flex bg-gray-100 p-1 rounded-lg shrink-0">
-            <button 
-              onClick={() => setStatusFilter('all')} 
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${statusFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        <div className="flex bg-gray-100 p-1 rounded-xl gap-1 self-start md:self-auto">
+          {([['all','الكل'], ['active','نشط'], ['frozen','مجمد']] as const).map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setStatusFilter(v)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                statusFilter === v
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
             >
-              الكل ({tenants.length})
+              {l} {v === 'all' ? `(${tenants.length})` : v === 'active' ? `(${tenants.filter(t=>t.isActive).length})` : `(${tenants.filter(t=>!t.isActive).length})`}
             </button>
-            <button 
-              onClick={() => setStatusFilter('active')} 
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 ${statusFilter === 'active' ? 'bg-emerald-50 text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-emerald-600'}`}
-            >
-              <CheckCircle2 size={12} /> نشط
-            </button>
-            <button 
-              onClick={() => setStatusFilter('inactive')} 
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 ${statusFilter === 'inactive' ? 'bg-red-50 text-red-700 shadow-sm' : 'text-gray-500 hover:text-red-600'}`}
-            >
-              <XCircle size={12} /> متوقف
-            </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTenants.map((t) => {
-          const plan = PLAN_LABELS[t.plan] || PLAN_LABELS.trial;
-          
-          return (
-            <div key={t.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col relative group">
-              {/* Header */}
-              <div className="p-5 border-b border-gray-50 flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center font-black text-xl text-bunyan-600 shadow-inner border border-gray-200/50">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black text-gray-900">{t.name}</h3>
-                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                      <Building2 size={12} /> {t.city}
-                    </p>
-                  </div>
-                </div>
-                {t.isActive ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[11px] font-bold border border-emerald-100">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> مسدد
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 rounded-lg text-[11px] font-bold border border-red-100">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> موقوف
-                  </span>
-                )}
-              </div>
-              
-              {/* Body */}
-              <div className="p-5 flex-1 space-y-4">
-                <div>
-                  <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">المالك</p>
-                  <p className="text-sm font-semibold text-gray-900">{t.ownerName}</p>
-                  <p className="text-xs text-gray-500 mt-0.5" dir="ltr">{t.ownerEmail}</p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-50">
-                  <div>
-                    <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">الباقة الحالية</p>
-                    <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-bold ${plan.bg} ${plan.color}`}>
-                      {plan.label}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">تاريخ الانضمام</p>
-                    <p className="text-xs font-semibold text-gray-700 flex items-center gap-1">
-                      <Calendar size={12} className="text-gray-400" /> {t.createdAt.split('T')[0] || t.createdAt}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Footer */}
-              <div className="p-4 bg-gray-50/50 border-t border-gray-100 mt-auto flex items-center justify-between gap-2">
-                <button 
-                  onClick={() => handleEnterTenant(t)}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
-                >
-                  <Eye size={14} /> دخول كمالك المتجر
-                </button>
-                <button 
-                  onClick={() => toggleTenant(t.id)}
-                  className={`flex-2 flex items-center justify-center gap-1.5 px-3 py-2 border rounded-xl text-xs font-bold transition-colors ${
-                    t.isActive 
-                      ? 'bg-white hover:bg-red-50 border-red-100 text-red-600 hover:text-red-700 hover:border-red-200' 
-                      : 'bg-white hover:bg-emerald-50 border-emerald-100 text-emerald-600 hover:text-emerald-700 hover:border-emerald-200'
-                  }`}
-                >
-                  {t.isActive ? (
-                    <><PowerOff size={14} /> تجميد المتجر</>
-                  ) : (
-                    <><Power size={14} /> تفعيل المتجر</>
-                  )}
-                </button>
-              </div>
-            </div>
-          );
-        })}
+      {/* Cards Grid */}
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon={<Store />}
+          title={searchTerm ? 'لا توجد نتائج مطابقة' : 'لا توجد متاجر'}
+          description={searchTerm ? 'جرب كلمات بحث مختلفة' : 'ستظهر المتاجر هنا بعد التسجيل'}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filtered.map(t => {
+            const plan = PLAN_LABELS[t.plan ?? 'trial'] ?? PLAN_LABELS.trial;
+            return (
+              <div
+                key={t.id}
+                className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm
+                  hover:shadow-md transition-all overflow-hidden relative"
+              >
+                {/* Top accent */}
+                <div className={`absolute top-0 right-0 left-0 h-1 rounded-t-2xl ${
+                  t.isActive ? 'bg-gradient-to-r from-emerald-400 to-teal-500' : 'bg-gradient-to-r from-amber-400 to-orange-400'
+                }`} />
 
-        {filteredTenants.length === 0 && (
-          <div className="col-span-full py-16 text-center bg-white rounded-2xl border border-gray-100 border-dashed">
-            <Store size={48} className="mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-bold text-gray-900 mb-1">لا توجد متاجر مطابقة</h3>
-            <p className="text-sm text-gray-500">جرب البحث بكلمات أخرى أو تغيير إعدادات التصفية.</p>
-          </div>
-        )}
-      </div>
+                {/* Header Row */}
+                <div className="flex items-start justify-between mb-4 mt-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-bunyan-50 flex items-center
+                      justify-center text-bunyan-700 font-black text-base">
+                      {t.name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-900 text-sm leading-tight">{t.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t.ownerName}</p>
+                    </div>
+                  </div>
+
+                  {/* Kebab Menu ⋮ */}
+                  <div className="relative" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => setOpenMenu(openMenu === t.id ? null : t.id)}
+                      className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center
+                        justify-center text-gray-400 transition-colors"
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openMenu === t.id && (
+                      <div className="absolute left-0 top-full mt-1 w-44 bg-white border
+                        border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                        <button
+                          onClick={() => { setOpenMenu(null); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5
+                            text-sm text-gray-700 hover:bg-gray-50 text-right"
+                        >
+                          <Pencil size={14} /> تعديل البيانات
+                        </button>
+                        <button
+                          onClick={() => handleFreeze(t)}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5
+                            text-sm hover:bg-amber-50 text-right text-amber-700"
+                        >
+                          <PauseCircle size={14} />
+                          {t.isActive ? 'تجميد المتجر' : 'تفعيل المتجر'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status + Plan */}
+                <div className="flex items-center gap-2 mb-4">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                    text-[11px] font-bold border ${
+                      t.isActive
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${t.isActive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    {t.isActive ? 'نشط' : 'مجمد'}
+                  </span>
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px]
+                    font-bold border ${plan.bg} ${plan.color} ${plan.border}`}>
+                    {plan.label}
+                  </span>
+                </div>
+
+                {/* Details */}
+                <div className="text-xs text-gray-500 space-y-1.5 mb-4">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin size={11} className="text-gray-400" />
+                    <span>{t.city ?? '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Calendar size={11} className="text-gray-400" />
+                    <span>{t.createdAt?.split('T')[0] ?? t.createdAt}</span>
+                  </div>
+                </div>
+
+                {/* Primary Action — مرئي دائماً */}
+                <button
+                  onClick={() => handleEnterTenant(t)}
+                  className="w-full py-2 bg-bunyan-600 hover:bg-bunyan-700 text-white
+                    rounded-xl text-sm font-bold transition-all flex items-center
+                    justify-center gap-2"
+                >
+                  <LogIn size={14} /> دخول كمالك
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

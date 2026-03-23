@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useDataStore } from "@/core/db/store";
 import { useAuthStore } from "@/core/auth/store";
+import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "./Toast";
 import { generateSKU, cartesian, generateItemCode } from "@/core/utils";
 import { formatCurrency } from "@/shared/utils/format";
@@ -51,6 +52,7 @@ export function AddProductSlideOver({
     useDataStore();
   const { showToast } = useToast();
   const tid = user?.tenantId || "";
+  const queryClient = useQueryClient();
 
   const [category, setCategory] = useState<string>("simple");
   const [productName, setProductName] = useState("");
@@ -264,8 +266,9 @@ export function AddProductSlideOver({
   const DEFAULT_UNIT_OPTS = ["قطعة", "كيلو", "لتر", "متر", "علبة"];
   
   const allUnitOpts = useMemo(() => {
-    return [...DEFAULT_UNIT_OPTS, ...storeCustomUnits];
-  }, [storeCustomUnits]);
+    const tenantUnits = storeCustomUnits[tid] || [];
+    return [...DEFAULT_UNIT_OPTS, ...tenantUnits];
+  }, [storeCustomUnits, tid]);
 
   const filteredUnitOpts = useMemo(
     () => allUnitOpts.filter((c) => c.includes(unitSearch)),
@@ -273,8 +276,9 @@ export function AddProductSlideOver({
   );
 
   const pickUnit = (label: string) => {
-    if (!DEFAULT_UNIT_OPTS.includes(label) && !storeCustomUnits.includes(label)) {
-      addCustomUnit(label);
+    const tenantUnits = storeCustomUnits[tid] || [];
+    if (!DEFAULT_UNIT_OPTS.includes(label) && !tenantUnits.includes(label)) {
+      addCustomUnit(label, tid);
     }
     setUnit(label);
     setUnitSearch("");
@@ -283,7 +287,7 @@ export function AddProductSlideOver({
     setNewUnitName("");
   };
 
-  const handleSave = () => {
+    const handleSave = async () => {
     if (!productName.trim()) {
       showToast("يرجى إدخال اسم المنتج", "error");
       return;
@@ -304,7 +308,7 @@ export function AddProductSlideOver({
               attrsSnap[a.name] = combo[i];
             });
             return {
-              id: `v-${Date.now()}-${sku}`,
+              id: crypto.randomUUID(),
               sku,
               attributes: attrsSnap,
               quantity: Number(quantities[sku]) || 0,
@@ -335,26 +339,34 @@ export function AddProductSlideOver({
       attributeConfig: category !== "simple" ? attributes : undefined,
     };
 
-    if (editProduct) {
-      updateProduct(editProduct.id, productData);
-      showToast("تم تحديث المنتج بنجاح", "success");
-    } else {
-      const itemCode = generateItemCode(products);
-      const totalCost = category === "simple" ? simpleInitCost : variantInitCost;
-      addProduct({
-        ...productData,
-        id: `p-${Date.now()}`,
-        itemCode,
-      });
-      showToast(`تم إضافة "${productName}" بنجاح ✅ — خُصم ${totalCost} د.ل من الخزينة`, "success");
-    }
+    try {
+      if (editProduct) {
+        await updateProduct(editProduct.id, productData);
+        showToast("تم تحديث المنتج بنجاح", "success");
+      } else {
+        const itemCode = generateItemCode(products);
+        const totalCost = category === "simple" ? simpleInitCost : variantInitCost;
+        await addProduct({
+          ...productData,
+          id: crypto.randomUUID(),
+          itemCode,
+        });
+        showToast(`تم إضافة "${productName}" بنجاح ✅ — خُصم ${totalCost} د.ل من الخزينة`, "success");
+      }
 
-    setIsSuccess(true);
-    setShowConfirm(false);
-    setTimeout(() => {
-      onClose();
-      setIsSuccess(false);
-    }, 1500);
+      // Invalidate caches
+      queryClient.invalidateQueries({ queryKey: ['products', tid] });
+      queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
+
+      setIsSuccess(true);
+      setShowConfirm(false);
+      setTimeout(() => {
+        onClose();
+        setIsSuccess(false);
+      }, 1500);
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء الحفظ', 'error');
+    }
   };
 
   const preSaveCheck = () => {
