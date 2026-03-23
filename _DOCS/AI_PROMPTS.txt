@@ -166,8 +166,9 @@ cloude sounnet + planning ٍ
 ```
 ـــــــــــــــــــ
 git add .
-git commit -m "fix: resolve API connection check and update settlements UI labels"
+git commit -m "feat: refine Vanex orders UI and disable auto-sync on mount"
 git push origin main
+
 
 ـــــــــــــــــــ
 

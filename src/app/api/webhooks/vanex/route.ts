@@ -43,11 +43,38 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    // ── 0. تسجيل جميع الطلبات القادمة (حتى المرفوضة) لمعرفة طريقة إرسال الـ Token ──
+    const headersObj: Record<string, string> = {};
+    req.headers.forEach((value, key) => { headersObj[key] = value; });
+
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from('webhook_logs')
+      .insert({
+        source: 'vanex',
+        event_type: 'raw_incoming',
+        vanex_package_code: body['package-code'] ?? body.package_code ?? body.data?.['package-code'] ?? 'DEBUG',
+        payload: { body, headers: headersObj },
+        processed: false,
+      })
+      .select('id')
+      .single();
+
+    if (!logError && logData) {
+      logId = logData.id;
+    }
+
     // ── 1. التحقق من Token ──
+    // دعم جميع الأماكن المحتملة التي قد يرسل فيها فانكس الـ Token
     const incomingToken =
-      req.headers.get('x-webhook-token') ?? body.token ?? null;
+      req.headers.get('x-webhook-token') ??
+      req.headers.get('authorization')?.replace('Bearer ', '') ??
+      req.headers.get('token') ??
+      body.token ??
+      null;
 
     if (!VANEX_WEBHOOK_SECRET || incomingToken !== VANEX_WEBHOOK_SECRET) {
+      // تحديث السجل كمرجوع بسبب المصادقة
+      if (logId) await supabaseAdmin.from('webhook_logs').update({ error: `Unauthorized. Expected: ${VANEX_WEBHOOK_SECRET?.slice(0,5)}..., Got: ${incomingToken}` }).eq('id', logId);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -67,20 +94,25 @@ export async function POST(req: NextRequest) {
       VANEX_TO_BUNYAN_STATUS[rawStatus] ?? 'with_courier';
 
     // ── 3. تسجيل الـ webhook فوراً ──
-    const { data: logData, error: logError } = await supabaseAdmin
-      .from('webhook_logs')
-      .insert({
-        source: 'vanex',
-        event_type: rawStatus,
-        vanex_package_code: code,
-        payload: body,
-        processed: false,
-      })
-      .select('id')
-      .single();
-
-    if (!logError && logData) {
-      logId = logData.id;
+    if (!logId) {
+      const { data: logData, error: logError } = await supabaseAdmin
+        .from('webhook_logs')
+        .insert({
+          source: 'vanex',
+          event_type: rawStatus,
+          vanex_package_code: code,
+          payload: body,
+          processed: false,
+        })
+        .select('id')
+        .single();
+  
+      if (!logError && logData) {
+        logId = logData.id;
+      }
+    } else {
+      // Update the existing debug log
+      await supabaseAdmin.from('webhook_logs').update({ event_type: rawStatus, payload: body }).eq('id', logId);
     }
 
     // ── 4. إذا لم يوجد كود الشحنة ──
