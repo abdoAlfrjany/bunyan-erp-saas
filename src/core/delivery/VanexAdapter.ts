@@ -271,11 +271,22 @@ export class VanexAdapter implements IDeliveryProvider {
   }
 
   async cancelShipment(id: number, token: string) {
-    const result = await this.request(
+    console.log(`[VanexAdapter] Attempting to DELETE package ID: ${id}`);
+    let result = await this.request<any>(
       `/customer/package/${id}`,
       { method: 'DELETE' },
       token
     );
+    console.log(`[VanexAdapter] DELETE Response:`, result);
+
+    // Some VanEx states don't allow DELETE but allow RECALL. 
+    // If DELETE fails, we automatically fall back to RECALL.
+    if (!result.success) {
+      console.log(`[VanexAdapter] DELETE failed (${result.error}), attempting RECALL (PUT) for package ID: ${id}`);
+      result = await this.recallShipment(id, token, 'إلغاء من نظام التاجر (تلقائي)');
+      console.log(`[VanexAdapter] RECALL Response:`, result);
+    }
+
     return { success: result.success, error: result.error };
   }
 
