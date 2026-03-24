@@ -110,7 +110,7 @@ export async function PATCH(
     // 1. جلب الطلبية
     const { data: order, error: fetchError } = await supabase
       .from('orders')
-      .select('id, tenant_id, status, vanex_package_id, vanex_package_code')
+      .select('id, tenant_id, status, vanex_package_id, vanex_package_code, items')
       .eq('id', params.id)
       .single();
 
@@ -140,15 +140,55 @@ export async function PATCH(
 
     const updates = await req.json();
 
-    // 5. حقول مسموح بتعديلها فقط (Whitelist — لا تسمح بتعديل vanex_package_id مثلاً)
+    // 5. حقول مسموح بتعديلها
     const allowedFields = [
-      'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'notes'
+      'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'notes', 
+      'delivery_type', 'courier_company_id', 'total_amount', 'discount'
     ];
 
     const filteredUpdates: Record<string, unknown> = {};
     for (const field of allowedFields) {
       if (field in updates) filteredUpdates[field] = updates[field];
     }
+
+    // 6. التعامل مع تعديل المنتجات (Inventory Shift)
+    if (updates.items && Array.isArray(updates.items)) {
+      // أ. استعادة المخزون القديم أولاً (إذا وُجد)
+      if (order.items?.length > 0) {
+        const restorePayload = (order.items as any[]).map((i: any) => ({
+          product_id: i.productId,
+          qty: i.quantity,
+          variant_size: i.variantSize || null,
+        }));
+        await supabase.rpc('restore_inventory', { items_payload: restorePayload });
+      }
+
+      // ب. خصم المخزون الجديد
+      const deductPayload = (updates.items as any[]).map((i: any) => ({
+          product_id: i.productId,
+          qty: i.quantity,
+          variant_size: i.variantSize || null,
+      }));
+      const { error: deductError } = await supabase.rpc('deduct_inventory', {
+          items_payload: deductPayload,
+      });
+
+      if (deductError) {
+          // إذا فشل الخصم (نقص مخزون مثلاً)، يجب إعادة المخزون القديم لضمان الاتساق
+          if (order.items?.length > 0) {
+            const restoreAgain = (order.items as any[]).map((i: any) => ({
+                product_id: i.productId,
+                qty: i.quantity,
+                variant_size: i.variantSize || null,
+            }));
+            await supabase.rpc('deduct_inventory', { items_payload: restoreAgain });
+          }
+          return NextResponse.json({ error: `فشل تحديث المخزون: ${deductError.message}` }, { status: 400 });
+      }
+
+      filteredUpdates.items = updates.items;
+    }
+
     filteredUpdates.updated_at = new Date().toISOString();
 
     const { error: updateError } = await supabase

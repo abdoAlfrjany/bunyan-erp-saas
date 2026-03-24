@@ -22,7 +22,7 @@ import { ORDER_STATUS } from '@/shared/utils/statusColors';
 import {
   ShoppingCart, Search, Plus, Trash2, Package,
   CheckCircle2, Truck, Ban, RotateCcw, ArrowDownCircle,
-  Filter, Calendar, Percent, RefreshCw, Copy
+  Filter, Calendar, Percent, RefreshCw, Copy, Edit2
 } from 'lucide-react';
 import type { Order, Product } from '@/core/types';
 
@@ -30,7 +30,7 @@ import type { Order, Product } from '@/core/types';
 const NEXT_STATUSES: Record<string, { status: Order['status']; label: string; icon: React.ReactNode; bg: string; text: string; hover: string }[]> = {
   pending: [
     { status: 'processing', label: 'تجهيز', icon: <Package size={14} />, bg: 'bg-indigo-50', text: 'text-indigo-700', hover: 'hover:bg-indigo-100' },
-    { status: 'cancelled', label: 'إلغاء', icon: <Ban size={14} />, bg: 'bg-red-50', text: 'text-red-700', hover: 'hover:bg-red-100' },
+    { status: 'cancelled', label: 'إلغاء الطلبية', icon: <Ban size={14} />, bg: 'bg-red-50', text: 'text-red-700', hover: 'hover:bg-red-100' },
   ],
   processing: [
     { status: 'with_courier', label: 'للتوصيل', icon: <Truck size={14} />, bg: 'bg-cyan-50', text: 'text-cyan-700', hover: 'hover:bg-cyan-100' },
@@ -113,6 +113,7 @@ export default function OrdersPage() {
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [cityFocused, setCityFocused] = useState(false);
 
   const handleManualSync = async () => {
@@ -142,6 +143,7 @@ export default function OrdersPage() {
 
   // الواجهة
   const [slideOpen, setSlideOpen] = useState(false);
+  const [isBulkSending, setIsBulkSending] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ orderId: string; newStatus: Order['status'], label: string } | null>(null);
 
   // نموذج طلبية جديدة
@@ -300,7 +302,86 @@ export default function OrdersPage() {
     }
   };
 
-  // ═══ إنشاء الطلبية ═══
+  // ═══ إرسال جماعي لشركات التوصيل ═══
+  const handleBulkSend = async () => {
+    const pendingOrders = filtered.filter(o => 
+      o.status === 'pending' && 
+      !o.vanex_package_id && 
+      o.deliveryType === 'courier_company' && 
+      o.courierCompanyId
+    );
+
+    if (pendingOrders.length === 0) {
+      showToast('لا توجد طلبيات جديدة (غير مرسلة) حالياً لشركات التوصيل', 'info');
+      return;
+    }
+
+    if (!confirm(`هل أنت متأكد من إرسال ${pendingOrders.length} طلبية دفعة واحدة لشركات التوصيل؟`)) return;
+
+    setIsBulkSending(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const o of pendingOrders) {
+      try {
+        setSendingToVanex(o.id);
+        const res = await fetch('/api/vanex/create-shipment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: o.id }),
+        });
+        const data = await res.json();
+        if (data.success) successCount++;
+        else failCount++;
+      } catch (err) {
+        failCount++;
+      } finally {
+        setSendingToVanex(null);
+      }
+    }
+
+    setIsBulkSending(false);
+    showToast(`✅ تم إرسال ${successCount} طلبية بنجاح. ${failCount > 0 ? `❌ فشل إرسال ${failCount} طلبية.` : ''}`, successCount > 0 ? 'success' : 'error');
+    queryClient.invalidateQueries({ queryKey: ['orders', tid] });
+  };
+
+  // ═══ تعديل الطلبية ═══
+  const handleEditOrder = (o: Order) => {
+    setEditingOrder(o);
+    setNewOrder({
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      customerPhone2: '', // Default as it's not in Order type yet
+      customerAddress: o.customerAddress || '',
+      customerCity: o.customerCity,
+      vanexCityId: o.vanexCityId,
+      vanexSubCityId: o.vanexSubCityId,
+      deliveryType: o.deliveryType as any,
+      courierId: o.courierCompanyId || '',
+      notes: o.notes || '',
+      discount: o.discount || 0,
+      priceIncludesDelivery: o.priceIncludesDelivery,
+      commissionBy: o.commission_by as any || 'customer',
+      paymentMethod: o.is_online_payable ? 'online' : 'cash',
+      isPrepaid: (o.prepaid_amount || 0) > 0,
+      prepaidAmount: o.prepaid_amount || 0,
+      showDimensions: false,
+      dimLength: '', dimWidth: '', dimHeight: '',
+      vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false,
+      vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market'
+    });
+    // Fill items
+    if (o.items) {
+      setOrderItems(o.items.map((i: any) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        variantSize: i.variantSize || ''
+      })));
+    }
+    setSlideOpen(true);
+  };
+
+  // ═══ إنشاء / تحديث الطلبية ═══
   const handleCreateOrder = async () => {
     // 🛡️ منع الضغط المزدوج (Double Submit Guard)
     if (isCreatingOrder) return;
@@ -429,16 +510,42 @@ export default function OrdersPage() {
 
     setIsCreatingOrder(true);
     try {
-      const result = await addOrder(order);
-      if (!result.success) {
-        showToast(result.error || 'فشل في حفظ الطلبية — يرجى التحقق من الاتصال', 'error');
-        return;
+      if (editingOrder) {
+        // تحديث طلبية موجودة
+        const res = await fetch(`/api/orders/${editingOrder.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_name: order.customerName,
+            customer_phone: order.customerPhone,
+            customer_city: order.customerCity,
+            customer_address: order.customerAddress,
+            notes: order.notes,
+            items: order.items,
+            total_amount: order.total,
+            discount: order.discount,
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          showToast(data.error || 'فشل التحديث', 'error');
+          return;
+        }
+        showToast(`✅ تم تحديث بيانات ${orderNum} بنجاح`);
+      } else {
+        // إنشاء طلبية جديدة
+        const result = await addOrder(order);
+        if (!result.success) {
+          showToast(result.error || 'فشل في حفظ الطلبية — يرجى التحقق من الاتصال', 'error');
+          return;
+        }
+        showToast(`✅ تم إنشاء الطلبية ${orderNum} بنجاح`);
       }
+      
       setSlideOpen(false);
+      setEditingOrder(null);
       setNewOrder({ customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '', vanexCityId: undefined, vanexSubCityId: undefined, deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0, showDimensions: false, dimLength: '', dimWidth: '', dimHeight: '', vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false, vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market' });
       setOrderItems([]);
-      showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
-      // Invalidate and refetch React Query cache for both orders and products
       queryClient.invalidateQueries({ queryKey: ['orders', tid] });
       queryClient.invalidateQueries({ queryKey: ['products', tid] });
     } finally {
@@ -573,32 +680,53 @@ export default function OrdersPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">تتبع رحلة الطلبيات من الإنشاء وحتى التوصيل</p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* الزر الخاص بـ مزامنة الحالات تم نقله إلى قسم الفلاتر المتقدمة كخيار طوارئ */}
-          <button onClick={() => setSlideOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50">
-            <Plus size={18} /> طلبية جديدة
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleBulkSend}
+            disabled={isBulkSending}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+              isBulkSending 
+                ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                : 'bg-white text-violet-600 border-violet-100 hover:bg-violet-50 hover:border-violet-200 shadow-sm'
+            }`}
+          >
+            {isBulkSending ? (
+              <span className="w-4 h-4 border-2 border-violet-600 border-t-transparent animate-spin rounded-full" />
+            ) : (
+              <Truck size={18} />
+            )}
+            إرسال الكل للتوصيل
+          </button>
+
+          <button onClick={() => { setEditingOrder(null); setSlideOpen(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50 group">
+            <Plus size={18} className="group-hover:rotate-90 transition-transform" /> 
+            طلبية جديدة
           </button>
         </div>
       </div>
 
       {/* شريط البحث والفلاتر */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-4">
-        <div className="flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+      <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl border border-white/50 shadow-lg shadow-gray-200/50 space-y-4 sticky top-4 z-40">
+        <div className="flex flex-wrap gap-4">
+          <div className="relative flex-1 min-w-[200px] group">
+            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-bunyan-600 transition-colors" />
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} 
-              placeholder="بحث برقم الطلبية أو اسم الزبون..."
-              className="w-full pr-10 pl-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500 transition-all" 
+              placeholder="بحث برقم الطلبية أو اسم الزبون أو الهاتف..."
+              className="w-full pr-10 pl-4 py-3 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-bunyan-500/10 focus:bg-white focus:border-bunyan-500 transition-all shadow-inner" 
             />
           </div>
           <button onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-xl text-sm font-bold transition-all ${
+            className={`flex items-center gap-2 px-5 py-3 border rounded-2xl text-sm font-bold transition-all duration-300 ${
               showFilters || dateFrom || dateTo || statusFilter !== 'all' || courierFilter !== 'all'
-                ? 'border-bunyan-500 text-bunyan-600 bg-bunyan-50' 
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                ? 'border-bunyan-500 text-bunyan-700 bg-bunyan-50/80 shadow-md shadow-bunyan-500/10' 
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:shadow-md'
             }`}>
-            <Filter size={16} /> تصفية متقدمة
+            <Filter size={18} className={showFilters ? 'animate-pulse' : ''} />
+            <span>الفلاتر المتقدمة</span>
+            {(statusFilter !== 'all' || courierFilter !== 'all' || dateFrom) && (
+              <span className="w-2 h-2 bg-bunyan-600 rounded-full" />
+            )}
           </button>
         </div>
 
@@ -670,42 +798,60 @@ export default function OrdersPage() {
       </div>
 
       {/* جدول الطلبيات */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+      <div className="bg-white/50 backdrop-blur-sm rounded-3xl border border-white shadow-2xl shadow-gray-200/40 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-right">
-            <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
+            <thead className="bg-gray-50/50 text-gray-400 font-bold text-[11px] uppercase tracking-widest border-b border-gray-100/50">
               <tr>
-                <th className="px-6 py-4">الطلبية</th>
-                <th className="px-6 py-4">الزبون و المدينة</th>
-                <th className="px-6 py-4">الحالة</th>
-                <th className="px-4 py-4">التوصيل</th>
-                <th className="px-6 py-4">الإجمالي</th>
-                <th className="px-6 py-4">التاريخ</th>
-                <th className="px-6 py-4 text-center">تحديث الحالة</th>
+                <th className="px-6 py-5"># كود الطلبية</th>
+                <th className="px-6 py-5">الزبون و المدينة</th>
+                <th className="px-6 py-5">حالة الشحنة</th>
+                <th className="px-4 py-5">بيانات التتبع</th>
+                <th className="px-6 py-5">إجمالي التحصيل</th>
+                <th className="px-6 py-5">تاريخ الإنشاء</th>
+                <th className="px-6 py-5 text-center">إدارة العمليات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-gray-100/50">
               {filtered.map((o) => {
                 const statusInfo = ORDER_STATUS[o.status as keyof typeof ORDER_STATUS];
                 const actions = NEXT_STATUSES[o.status] || [];
                 return (
-                  <tr key={o.id} className="hover:bg-gray-50/70 transition-colors">
-                    <td className="px-6 py-4 font-bold text-gray-900 font-mono">
-                      {o.orderNumber}
-                      {o.notes && <p className="text-[10px] text-gray-400 font-sans font-normal mt-0.5 max-w-[120px] truncate">{o.notes}</p>}
+                  <tr key={o.id} className="group hover:bg-gray-50/80 transition-all duration-300">
+                    <td className="px-6 py-5">
+                      <div className="flex flex-col">
+                        <span className="font-black text-gray-900 font-mono tracking-tighter group-hover:text-bunyan-600 transition-colors">{o.orderNumber}</span>
+                        {o.notes && <p className="text-[10px] text-gray-400 font-sans font-normal mt-1 max-w-[120px] truncate leading-relaxed">{o.notes}</p>}
+                      </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="font-semibold text-gray-900">{o.customerName}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{o.customerCity} — <span dir="ltr">{o.customerPhone}</span></p>
+                    <td className="px-6 py-5">
+                      <p className="font-bold text-gray-900 group-hover:translate-x-1 transition-transform">{o.customerName}</p>
+                      <p className="font-mono text-[10px] text-gray-400 mt-1 bg-gray-100/50 w-fit px-1.5 py-0.5 rounded-md" dir="ltr">{o.customerPhone}</p>
                     </td>
-                    <td className="px-6 py-4">
-                      {statusInfo ? (
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusInfo.bg} ${statusInfo.text} border ${statusInfo.border || 'border-transparent'}`}>
-                          {statusInfo.dot && <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />}
-                          {statusInfo.label}
-                        </span>
-                      ) : (
-                        <span className="text-gray-500">{o.status}</span>
+                    <td className="px-6 py-5">
+                      {statusInfo ? (() => {
+                        // تخصيص لون الحالة Pending بناءً على الإرسال
+                        let badgeStyle = `${statusInfo.bg} ${statusInfo.text} ${statusInfo.border || 'border-transparent'}`;
+                        let label: string = statusInfo.label;
+                        
+                        if (o.status === 'pending') {
+                          if (o.vanex_package_id || o.vanex_package_code) {
+                            badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 shadow-sm";
+                            label = "مرسلة للتوصيل";
+                          } else {
+                            badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-100 shadow-sm";
+                            label = "طلبية جديدة (مسودة)";
+                          }
+                        }
+
+                        return (
+                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl text-[11px] font-black ${badgeStyle} border transition-transform hover:scale-105 active:scale-95`}>
+                            {statusInfo.dot && <span className={`w-2 h-2 rounded-full shadow-current shadow-sm ${o.status === 'pending' && o.vanex_package_id ? 'bg-blue-400' : statusInfo.dot} animate-pulse`} />}
+                            {label}
+                          </span>
+                        );
+                      })() : (
+                        <span className="text-gray-500 font-bold">{o.status}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -714,41 +860,39 @@ export default function OrdersPage() {
                           <span className="text-gray-700 font-medium text-xs">
                             {myCouriers.find(c => c.id === o.courierCompanyId)?.name ?? '—'}
                           </span>
-                          {/* ═══ كود فانكس — قابل للنسخ ═══ */}
+                          {/* ═══ كود فانكس — قابل للنسخ + زر التزامن الصغير ═══ */}
                           {o.vanex_package_code && (
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(o.vanex_package_code!);
-                                showToast('تم نسخ كود الشحنة', 'success');
-                              }}
-                              className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 text-[10px] px-2 py-0.5 rounded-md font-mono border border-violet-200 hover:bg-violet-100 transition-colors cursor-pointer w-fit"
-                              title="انقر للنسخ"
-                            >
-                              <Copy size={9} className="shrink-0" />
-                              {o.vanex_package_code}
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(o.vanex_package_code!);
+                                  showToast('تم نسخ كود الشحنة', 'success');
+                                }}
+                                className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 text-[10px] px-2 py-0.5 rounded-md font-mono border border-violet-200 hover:bg-violet-100 transition-colors cursor-pointer w-fit"
+                                title="انقر للنسخ"
+                              >
+                                {o.vanex_package_code}
+                              </button>
+                              
+                              <button
+                                onClick={() => handleTrackOrder(o.id)}
+                                disabled={trackingOrderId === o.id}
+                                className="p-1 rounded-full bg-gray-50 text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all border border-gray-100 disabled:opacity-50"
+                                title="تحديث الحالة من فانكس"
+                              >
+                                <RefreshCw size={10} className={trackingOrderId === o.id ? 'animate-spin' : ''} />
+                              </button>
+                            </div>
                           )}
+                          
                           {/* ═══ مؤشر حالة الشحنة ═══ */}
                           {(() => {
                             const badge = getVanexStatusBadge(o);
-                            if (!badge) return null;
+                            if (!badge || badge.label === '🚛 أُرسلت') return null; // إزالة أُرسلت بناءً على طلب المستخدم
                             return (
-                              <div className="flex items-center gap-1">
-                                <span className={`inline-block ${badge.bg} ${badge.text} text-[10px] px-2 py-0.5 rounded-md font-semibold`}>
+                                <span className={`inline-block ${badge.bg} ${badge.text} text-[10px] px-2 py-0.5 rounded-md font-semibold mt-1 w-fit`}>
                                   {badge.label}
                                 </span>
-                                {/* ═══ زر التتبع ═══ */}
-                                {o.vanex_package_code && (
-                                  <button
-                                    onClick={() => handleTrackOrder(o.id)}
-                                    disabled={trackingOrderId === o.id}
-                                    className="p-0.5 rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-violet-600 disabled:opacity-50"
-                                    title="تحديث الحالة من فانكس"
-                                  >
-                                    <RefreshCw size={11} className={trackingOrderId === o.id ? 'animate-spin' : ''} />
-                                  </button>
-                                )}
-                              </div>
                             );
                           })()}
                         </div>
@@ -785,12 +929,10 @@ export default function OrdersPage() {
                           let displayedActions = actions;
                           if (isSentToVanex) {
                             if (o.status === 'pending') {
-                              // إظهار زر الإلغاء بشكل أنيق وبكامل العرض للسحب من API
                               displayedActions = [
-                                { status: 'cancelled', label: 'إلغاء وفك الربط', icon: <Ban size={14} className="mb-px" />, bg: 'bg-white', text: 'text-red-600 border border-red-200 shadow-sm w-full', hover: 'hover:bg-red-50 hover:border-red-300' }
+                                { status: 'cancelled', label: 'إلغاء الطلبية', icon: <Ban size={14} className="mb-px" />, bg: 'bg-white', text: 'text-red-600 border border-red-200 shadow-sm w-full', hover: 'hover:bg-red-50 hover:border-red-300' }
                               ];
                             } else {
-                              // إخفاء الأزرار إذا تحركت الشحنة فعلياً
                               displayedActions = [];
                             }
                           }
@@ -824,22 +966,14 @@ export default function OrdersPage() {
                                   }`}
                                 >
                                   {sendingToVanex === o.id ? (
-                                    <><span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" /> جاري الإرسال</>
+                                    <><span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" /> جاري الإرسال...</>
                                   ) : (
-                                    <><Truck size={14} className="mb-px" /> إرسال النظام</>
+                                    <><Truck size={14} className="mb-px" /> إرسال للتوصيل</>
                                   )}
                                 </button>
                               )}
 
-                              {/* 2. شارة النظام الذكي (بعد الإرسال) */}
-                              {isSentToVanex && o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'return_confirmed' && (
-                                <div className="flex items-center justify-center gap-1.5 px-2 py-1.5 bg-violet-50/80 border border-violet-100/80 rounded-lg">
-                                  <RefreshCw size={12} className="text-violet-500 animate-[spin_3s_linear_infinite]" />
-                                  <span className="text-[10px] font-bold text-violet-700 tracking-tight">
-                                    {o.status === 'pending' ? 'بانتظار المندوب' : 'مزامنة أوتوماتيكية'}
-                                  </span>
-                                </div>
-                              )}
+                              {/* 2. شارة النظام الذكي (تمت إزالتها بناءً على طلب المستخدم للتبسيط) */}
 
                               {/* 3. أزرار العمليات الديناميكية */}
                               {(!isApiOrder && displayedActions.length > 0) && (
@@ -865,29 +999,42 @@ export default function OrdersPage() {
                                 </span>
                               )}
 
-                              {/* 5. 🗑️ زر الحذف النهائي — للطلبيات الجديدة غير المرسلة فقط */}
+                              {/* 5. العمليات الأمنية: تعديل / حذف */}
                               {canDelete && (
-                                <button
-                                  disabled={deletingOrderId === o.id}
-                                  onClick={() => {
-                                    if (confirm(`هل أنت متأكد من حذف الطلبية ${o.orderNumber} نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
-                                      handleDeleteOrder(o.id);
-                                    }
-                                  }}
-                                  className={`flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border w-full ${
-                                    deletingOrderId === o.id
-                                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
-                                      : 'bg-white text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
-                                  }`}
-                                  title="حذف الطلبية نهائياً من النظام"
-                                >
-                                  {deletingOrderId === o.id ? (
-                                    <span className="w-3 h-3 border-2 border-gray-300 border-t-gray-400 rounded-full animate-spin" />
-                                  ) : (
-                                    <Trash2 size={12} />
-                                  )}
-                                  <span>{deletingOrderId === o.id ? 'جاري الحذف...' : 'حذف نهائي'}</span>
-                                </button>
+                                <div className="flex gap-1.5 w-full">
+                                  {/* زر التعديل */}
+                                  <button
+                                    onClick={() => handleEditOrder(o)}
+                                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border bg-white text-gray-400 border-gray-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200"
+                                    title="تعديل بيانات الطلبية"
+                                  >
+                                    <Edit2 size={12} />
+                                    <span>تعديل</span>
+                                  </button>
+
+                                  {/* زر الحذف */}
+                                  <button
+                                    disabled={deletingOrderId === o.id}
+                                    onClick={() => {
+                                      if (confirm(`هل أنت متأكد من حذف الطلبية ${o.orderNumber} نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+                                        handleDeleteOrder(o.id);
+                                      }
+                                    }}
+                                    className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                                      deletingOrderId === o.id
+                                        ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                                        : 'bg-white text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                                    }`}
+                                    title="حذف الطلبية نهائياً"
+                                  >
+                                    {deletingOrderId === o.id ? (
+                                      <span className="w-3 h-3 border-2 border-gray-300 border-t-gray-400 rounded-full animate-spin" />
+                                    ) : (
+                                      <Trash2 size={12} />
+                                    )}
+                                    <span>حذف</span>
+                                  </button>
+                                </div>
                               )}
                             </div>
                           );
@@ -919,11 +1066,16 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* ═══ SlideOver: إنشاء طلبية جديدة ═══ */}
-      <SlideOver isOpen={slideOpen} onClose={() => setSlideOpen(false)} title="إنشاء طلبية جديدة (نظام نقطة البيع)" width="w-full sm:max-w-6xl">
+      {/* ═══ SlideOver: إنشاء / تعديل طلبية ═══ */}
+      <SlideOver 
+        isOpen={slideOpen} 
+        onClose={() => { setSlideOpen(false); setEditingOrder(null); }} 
+        title={editingOrder ? `تعديل الطلبية ${editingOrder.orderNumber}` : "إنشاء طلبية جديدة (نظام نقطة البيع)"} 
+        width="w-full sm:max-w-6xl"
+      >
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full pb-20">
           
-          {/* 1. القسم الأيمن: المنتجات المتوفرة (5 أعمدة) */}
+          {/* 1. القسم الأيمن: المنتجات المتوفرة */}
           <div className="lg:col-span-4 xl:col-span-5 flex flex-col gap-4 border-l border-gray-100 p-4 bg-gray-50/50 h-[calc(100vh-140px)] overflow-y-auto">
             <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
               <Package size={16} className="text-bunyan-600" />
@@ -1549,7 +1701,7 @@ export default function OrdersPage() {
                     جاري الحفظ...
                   </>
                 ) : (
-                  'اعتماد وإنشاء الفاتورة'
+                  editingOrder ? 'حفظ التعديلات' : 'اعتماد وإنشاء الفاتورة'
                 )}
               </button>
             </div>
