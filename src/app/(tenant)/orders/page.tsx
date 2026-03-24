@@ -111,6 +111,8 @@ export default function OrdersPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [sendingToVanex, setSendingToVanex] = useState<string | null>(null);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [cityFocused, setCityFocused] = useState(false);
 
   const handleManualSync = async () => {
@@ -278,8 +280,30 @@ export default function OrdersPage() {
     return { subtotal, deliveryFee, discount, total };
   }, [orderItems, myProducts, myCouriers, newOrder.courierId, newOrder.discount, newOrder.priceIncludesDelivery, newOrder.deliveryType]);
 
+  // ═══ حذف الطلبية نهائياً ═══
+  const handleDeleteOrder = async (orderId: string) => {
+    setDeletingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        showToast(data.error || 'فشل حذف الطلبية', 'error');
+      } else {
+        showToast('✅ تم حذف الطلبية نهائياً وإعادة المخزون', 'success');
+        queryClient.invalidateQueries({ queryKey: ['orders', tid] });
+        queryClient.invalidateQueries({ queryKey: ['products', tid] });
+      }
+    } catch {
+      showToast('خطأ في الاتصال أثناء الحذف', 'error');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   // ═══ إنشاء الطلبية ═══
   const handleCreateOrder = async () => {
+    // 🛡️ منع الضغط المزدوج (Double Submit Guard)
+    if (isCreatingOrder) return;
     if (!newOrder.customerName || !newOrder.customerPhone || orderItems.length === 0) {
       showToast('يرجى ملء بيانات الزبون وإضافة منتج واحد على الأقل', 'error');
       return;
@@ -403,19 +427,23 @@ export default function OrdersPage() {
       }),
     };
 
-    const result = await addOrder(order);
-    if (!result.success) {
-      showToast(result.error || 'فشل في حفظ الطلبية — يرجى التحقق من الاتصال', 'error');
-      return;
+    setIsCreatingOrder(true);
+    try {
+      const result = await addOrder(order);
+      if (!result.success) {
+        showToast(result.error || 'فشل في حفظ الطلبية — يرجى التحقق من الاتصال', 'error');
+        return;
+      }
+      setSlideOpen(false);
+      setNewOrder({ customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '', vanexCityId: undefined, vanexSubCityId: undefined, deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0, showDimensions: false, dimLength: '', dimWidth: '', dimHeight: '', vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false, vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market' });
+      setOrderItems([]);
+      showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
+      // Invalidate and refetch React Query cache for both orders and products
+      queryClient.invalidateQueries({ queryKey: ['orders', tid] });
+      queryClient.invalidateQueries({ queryKey: ['products', tid] });
+    } finally {
+      setIsCreatingOrder(false);
     }
-    setSlideOpen(false);
-    setNewOrder({ customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '', vanexCityId: undefined, vanexSubCityId: undefined, deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0, showDimensions: false, dimLength: '', dimWidth: '', dimHeight: '', vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false, vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market' });
-    setOrderItems([]);
-    showToast(`تم إنشاء الطلبية ${orderNum} بنجاح`);
-    
-    // Invalidate and refetch React Query cache for both orders and products
-    queryClient.invalidateQueries({ queryKey: ['orders', tid] });
-    queryClient.invalidateQueries({ queryKey: ['products', tid] });
   };
 
   // ═══ تغيير حالة الطلبية ═══
@@ -436,7 +464,7 @@ export default function OrdersPage() {
       const order = myOrders.find(o => o.id === orderId);
       
       // ═══ الأتمتة العكسية — إلغاء الطلبية من نظام فانكس قبل التأكيد محلياً ═══
-      if (newStatus === 'cancelled' && order?.vanex_package_id) {
+      if (newStatus === 'cancelled' && (order?.vanex_package_id || order?.vanex_package_code)) {
         showToast('جاري إلغاء الطلبية تلقائياً من نظام شركة التوصيل...', 'info');
         const cancelResult = await cancelOrderVanex(orderId);
         if (!cancelResult.success) {
@@ -444,7 +472,7 @@ export default function OrdersPage() {
           setConfirmAction(null);
           return; // منع الإلغاء محلياً لضمان التطابق
         }
-        showToast('✅ تم إلغاء الشحنة على منصة فانكس', 'success');
+        showToast('✅ تم إلغاء الشحنة على منصة فانكس بنجاح', 'success');
       }
 
       await updateOrderStatus(orderId, newStatus);
@@ -750,6 +778,9 @@ export default function OrdersPage() {
                             !!courier?.isApiConnected &&
                             !isSentToVanex;
 
+                          // 🗑️ الحذف متاح فقط إذا: الحالة pending + لم ترسل لفانكس
+                          const canDelete = o.status === 'pending' && !isSentToVanex;
+
                           // ═══ التحكم بأزرار الحالة حسب الارتباط بفانكس ═══
                           let displayedActions = actions;
                           if (isSentToVanex) {
@@ -832,6 +863,31 @@ export default function OrdersPage() {
                                 <span className="text-[11px] font-bold text-gray-400 px-3 py-1.5 bg-gray-50/80 border border-gray-100 rounded-lg w-full text-center tracking-wide">
                                   مُكتمل الإجراء
                                 </span>
+                              )}
+
+                              {/* 5. 🗑️ زر الحذف النهائي — للطلبيات الجديدة غير المرسلة فقط */}
+                              {canDelete && (
+                                <button
+                                  disabled={deletingOrderId === o.id}
+                                  onClick={() => {
+                                    if (confirm(`هل أنت متأكد من حذف الطلبية ${o.orderNumber} نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+                                      handleDeleteOrder(o.id);
+                                    }
+                                  }}
+                                  className={`flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border w-full ${
+                                    deletingOrderId === o.id
+                                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                                      : 'bg-white text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                                  }`}
+                                  title="حذف الطلبية نهائياً من النظام"
+                                >
+                                  {deletingOrderId === o.id ? (
+                                    <span className="w-3 h-3 border-2 border-gray-300 border-t-gray-400 rounded-full animate-spin" />
+                                  ) : (
+                                    <Trash2 size={12} />
+                                  )}
+                                  <span>{deletingOrderId === o.id ? 'جاري الحذف...' : 'حذف نهائي'}</span>
+                                </button>
                               )}
                             </div>
                           );
@@ -1476,12 +1532,25 @@ export default function OrdersPage() {
           
           <div className="absolute bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <div className="max-w-6xl mx-auto flex justify-end">
-              <button onClick={handleCreateOrder}
-                disabled={isVanexCitySuspended}
-                className={`w-full sm:w-[300px] py-3 text-white font-bold rounded-xl transition-all text-sm shadow-md ${
-                  isVanexCitySuspended ? 'bg-gray-400 cursor-not-allowed opacity-70' : 'bg-bunyan-600 hover:bg-bunyan-700'
-                }`}>
-                اعتماد وإنشاء الفاتورة
+              <button
+                onClick={handleCreateOrder}
+                disabled={isVanexCitySuspended || isCreatingOrder}
+                className={`w-full sm:w-[300px] py-3 text-white font-bold rounded-xl transition-all text-sm shadow-md flex items-center justify-center gap-2 ${
+                  isVanexCitySuspended
+                    ? 'bg-gray-400 cursor-not-allowed opacity-70'
+                    : isCreatingOrder
+                    ? 'bg-bunyan-400 cursor-not-allowed'
+                    : 'bg-bunyan-600 hover:bg-bunyan-700'
+                }`}
+              >
+                {isCreatingOrder ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    جاري الحفظ...
+                  </>
+                ) : (
+                  'اعتماد وإنشاء الفاتورة'
+                )}
               </button>
             </div>
           </div>

@@ -254,15 +254,23 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
     
     const { data: row, error: fetchError } = await supabase
       .from('orders')
-      .select('*, couriers(*)')
+      .select('*')
       .eq('id', orderId)
       .single();
 
     if (fetchError || !row) return { success: false, error: 'الطلبية غير موجودة' };
-    if (!row.vanex_package_id) return { success: false, error: 'الطلبية ليست مرتبطة بفانكس' };
     
-    const courierData = row.couriers;
-    if (!courierData || !courierData.is_api_connected || !courierData.api_credentials?.token) {
+    // Check if it has any Vanex identifier
+    const vanexIdOrCode = row.vanex_package_id || row.vanex_package_code;
+    if (!vanexIdOrCode) return { success: false, error: 'الطلبية ليست مرتبطة بفانكس (لا يوجد كود تتبع)' };
+    
+    const { data: courierData, error: courierError } = await supabase
+      .from('couriers')
+      .select('*')
+      .eq('id', row.courier_company_id)
+      .single();
+
+    if (courierError || !courierData || !courierData.is_api_connected || !courierData.api_credentials?.token) {
       return { success: false, error: 'بيانات ربط شركة التوصيل مفقودة' };
     }
 
@@ -270,7 +278,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       const { getDeliveryAdapter } = await import('../../delivery');
       const adapter = getDeliveryAdapter(courierData.api_provider || 'vanex');
       
-      const result = await adapter.cancelShipment(row.vanex_package_id, courierData.api_credentials.token);
+      const result = await adapter.cancelShipment(vanexIdOrCode, courierData.api_credentials.token);
       
       if (result.success) {
         // تحديث قاعدة البيانات محلياً

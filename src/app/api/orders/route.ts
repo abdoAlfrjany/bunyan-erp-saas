@@ -60,6 +60,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 3.5 🛡️ Idempotency — إذا كانت الطلبية موجودة بالفعل بنفس الـ ID فنعيد 200 دون إدراج مكرر
+    if (o.id) {
+      const { data: existing } = await supabaseAdmin
+        .from('orders')
+        .select('id, order_number')
+        .eq('id', o.id)
+        .maybeSingle();
+      if (existing) {
+        return NextResponse.json({ success: true, order: existing, idempotent: true });
+      }
+    }
+
     // 4. إرسال الطلبية لـ Supabase
     const mappedRow: any = {
       ...(o.id ? { id: o.id } : {}),

@@ -394,8 +394,8 @@ export interface IDeliveryProvider {
   calculateDeliveryPrice(fromRegion: number, toCityId: number): Promise<{ total: number; deliveryTime: string } | null>;
   createShipment(payload: ICreateShipmentPayload, token: string): Promise<ICreateShipmentResult>;
   getShipmentStatus(trackingCode: string, token?: string): Promise<IShipmentStatusResult>;
-  cancelShipment(id: number, token: string): Promise<{ success: boolean; error?: string }>;
-  recallShipment(id: number, token: string, reason?: string): Promise<{ success: boolean; error?: string }>;
+  cancelShipment(id: number | string, token: string): Promise<{ success: boolean; error?: string }>;
+  recallShipment(id: number | string, token: string, reason?: string): Promise<{ success: boolean; error?: string }>;
   getSettlements(token: string, status?: string): Promise<VanexSettlement[]>;
-  getSettlementDetails(id: number, token: string): Promise<VanexSettlement | null>;
+  getSettlementDetails(id: number | string, token: string): Promise<VanexSettlement | null>;
 }

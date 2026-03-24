@@ -270,8 +270,8 @@ export class VanexAdapter implements IDeliveryProvider {
     return { rawStatus: result.error ?? 'unknown', bunyanStatus: 'with_courier' };
   }
 
-  async cancelShipment(id: number, token: string) {
-    console.log(`[VanexAdapter] Attempting to DELETE package ID: ${id}`);
+  async cancelShipment(id: number | string, token: string) {
+    console.log(`[VanexAdapter] Attempting to DELETE package ID/Code: ${id}`);
     let result = await this.request<any>(
       `/customer/package/${id}`,
       { method: 'DELETE' },
@@ -282,7 +282,7 @@ export class VanexAdapter implements IDeliveryProvider {
     // Some VanEx states don't allow DELETE but allow RECALL. 
     // If DELETE fails, we automatically fall back to RECALL.
     if (!result.success) {
-      console.log(`[VanexAdapter] DELETE failed (${result.error}), attempting RECALL (PUT) for package ID: ${id}`);
+      console.log(`[VanexAdapter] DELETE failed (${result.error}), attempting RECALL (PUT) for package ID/Code: ${id}`);
       result = await this.recallShipment(id, token, 'إلغاء من نظام التاجر (تلقائي)');
       console.log(`[VanexAdapter] RECALL Response:`, result);
     }
@@ -290,7 +290,7 @@ export class VanexAdapter implements IDeliveryProvider {
     return { success: result.success, error: result.error };
   }
 
-  async recallShipment(id: number, token: string, reason?: string) {
+  async recallShipment(id: number | string, token: string, reason?: string) {
     const result = await this.request(
       `/customer/package/${id}/recall`,
       { method: 'PUT', body: JSON.stringify({ reason: reason || 'استرجاع من النظام' }) },
