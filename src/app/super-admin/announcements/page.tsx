@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useDataStore } from '@/core/db/store';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Megaphone, Plus, Trash2, Calendar, Eye, Send } from 'lucide-react';
+import { Megaphone, Plus, Trash2, Calendar, Send } from 'lucide-react';
 
 export default function SuperAdminAnnouncements() {
   const { announcements, addAnnouncement, removeAnnouncement } = useDataStore();

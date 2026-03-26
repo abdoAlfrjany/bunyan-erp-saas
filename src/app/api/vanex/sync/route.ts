@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '@/core/server/auth';
-import { vanexAdapter, VANEX_TO_BUNYAN_STATUS } from '@/core/delivery/VanexAdapter';
+import { vanexAdapter } from '@/core/delivery/VanexAdapter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
     // 1. جلب كل الطلبيات النشطة المرسلة لفانكس لهذا التاجر
     const { data: orders, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, vanex_package_code, vanex_package_id, courier_company_id, status, courier_raw_status, tenant_id')
+      .select('id, courier_tracking_code, courier_package_id, courier_company_id, status, courier_raw_status, tenant_id')
       .eq('tenant_id', auth.tenantId)
-      .not('vanex_package_code', 'is', null)
+      .not('courier_tracking_code', 'is', null)
       .not('status', 'in', '(delivered,cancelled,return_confirmed)');
 
     if (fetchError || !orders || orders.length === 0) {
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const terminalStatuses = ['delivered', 'cancelled', 'return_confirmed'];
 
     for (const order of orders) {
-      if (!order.vanex_package_code || !order.courier_company_id) continue;
+      if (!order.courier_tracking_code || !order.courier_company_id) continue;
 
       const token = tokenMap[order.courier_company_id];
       if (!token) {
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const statusResult = await vanexAdapter.getShipmentStatus(order.vanex_package_code, token);
+        const statusResult = await vanexAdapter.getShipmentStatus(order.courier_tracking_code, token);
         
         // تحديث فقط إذا تغيرت الحالة
         if (statusResult.rawStatus !== order.courier_raw_status) {
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
           synced++;
         }
       } catch (err) {
-        errors.push(`${order.id}: ${err instanceof Error ? err.message : 'خطأ'}`);
+        errors.push(`${order.id}: ${err instanceof Error ? (err as Error).message : 'خطأ'}`);
       }
     }
 
@@ -104,8 +104,8 @@ export async function POST(req: NextRequest) {
       total: orders.length,
       errors: errors.length > 0 ? errors : undefined,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[POST /api/vanex/sync] Error:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }

@@ -23,7 +23,7 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const updateField = (field: string, value: string) => {
+  const updateField = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -95,8 +95,8 @@ export default function RegisterPage() {
       });
 
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء التسجيل — حاول مرة أخرى');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'حدث خطأ أثناء التسجيل — حاول مرة أخرى');
     } finally {
       setIsLoading(false);
     }

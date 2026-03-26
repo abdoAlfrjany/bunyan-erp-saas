@@ -11,7 +11,7 @@ import { useDataStore } from '@/core/db/store';
 import { GlobalSearch } from '@/shared/components/ui/GlobalSearch';
 import {
   Bell, Menu, Settings, LogOut, User, ChevronDown,
-  ShoppingCart, Package, AlertCircle, CheckCircle, Info,
+  AlertCircle, CheckCircle, Info,
   Eye, Shield,
 } from 'lucide-react';
 import { formatRelativeTime } from '@/shared/utils/format';

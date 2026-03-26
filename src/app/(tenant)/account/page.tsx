@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useUser } from '@/core/auth/hooks';
 import { useAllEmployees, useAllDebts, useGetForTenant } from '@/core/db/hooks';
 import { formatCurrency } from '@/shared/utils/format';
-import { User, Wallet, CalendarDays, Coins, ArrowRightLeft, ShieldCheck } from 'lucide-react';
+import { User, Wallet, Coins, ArrowRightLeft, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '@/shared/components/ui/Toast';
 

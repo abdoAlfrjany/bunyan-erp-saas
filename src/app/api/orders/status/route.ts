@@ -28,7 +28,7 @@ export async function PATCH(req: NextRequest) {
     // 1. جلب الطلبية الحالية وقفلها (للتحقق من الملكية والحالة)
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, tenant_id, status, total, delivery_type, items, order_number, vanex_package_id, courier_company_id')
+      .select('id, tenant_id, status, total, delivery_type, items, order_number, courier_package_id, courier_company_id')
       .eq('id', orderId)
       .single();
 
@@ -46,7 +46,7 @@ export async function PATCH(req: NextRequest) {
     if (paymentStatus) updatePayload.payment_status = paymentStatus;
 
     // 1.5 إلغاء الشحنة من فانكس إذا لزم الأمر
-    if (status === 'cancelled' && order.vanex_package_id && order.courier_company_id) {
+    if (status === 'cancelled' && order.courier_package_id && order.courier_company_id) {
       try {
         const { data: courier } = await supabaseAdmin
           .from('couriers')
@@ -56,9 +56,9 @@ export async function PATCH(req: NextRequest) {
 
         const token = courier?.api_credentials?.token;
         if (token) {
-          const cancelResult = await vanexAdapter.cancelShipment(order.vanex_package_id, token);
+          const cancelResult = await vanexAdapter.cancelShipment(order.courier_package_id, token);
           if (!cancelResult.success) {
-            console.error(`[Vanex] Failed to cancel shipment ${order.vanex_package_id}:`, cancelResult.error);
+            console.error(`[Vanex] Failed to cancel shipment ${order.courier_package_id}:`, cancelResult.error);
           }
         }
       } catch (cancelError) {
@@ -128,8 +128,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     // 4. استعادة المخزون عند الإلغاء أو المرتجع
-    if (['cancelled', 'return_confirmed'].includes(status) && order.items?.length > 0) {
-      const restorePayload = order.items.map((i: any) => ({
+    if (['cancelled', 'return_confirmed'].includes(status) && Array.isArray(order.items) && (order.items as unknown[]).length > 0) {
+      const restorePayload = (order.items as unknown as { productId: string; quantity: number; variantSize?: string }[]).map((i) => ({
         product_id: i.productId,
         qty: i.quantity,
         variant_size: i.variantSize || null,
@@ -145,8 +145,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, newStatus: status });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[PATCH /api/orders/status] Error:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }

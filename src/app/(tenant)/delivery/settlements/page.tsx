@@ -10,11 +10,11 @@ import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { useToast } from '@/shared/components/ui/Toast';
 import {
   Landmark, RefreshCw, CheckCircle2, Clock,
-  AlertCircle, Loader2, TrendingDown, Banknote,
+  AlertCircle, Loader2, Banknote,
   Building2, ChevronDown, ChevronUp, ArrowDownCircle,
   Wallet, CreditCard, Send, Info
 } from 'lucide-react';
-import type { VanexSettlement } from '@/core/types';
+import type { VanexSettlement, TreasuryAccount } from '@/core/types';
 
 export default function SettlementsPage() {
   const user = useUser();
@@ -42,8 +42,8 @@ export default function SettlementsPage() {
   const courierAccounts = myAccounts.filter(a => a.accountType === 'with_courier');
 
   const totalPending = myAccounts
-    .filter((a: any) => a.accountType === 'with_courier')
-    .reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
+    .filter((a: TreasuryAccount) => a.accountType === 'with_courier')
+    .reduce((sum: number, a: TreasuryAccount) => sum + (a.balance || 0), 0);
 
   const [fetchingId, setFetchingId] = useState<string | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -56,8 +56,8 @@ export default function SettlementsPage() {
 
   const filtered = useMemo(() => {
     return mySettlements
-      .filter((s: any) => filterStatus === 'all' || s.status === filterStatus)
-      .filter((s: any) => filterCourier === 'all' || s.courierCompanyId === filterCourier)
+      .filter((s: VanexSettlement) => filterStatus === 'all' || s.status === filterStatus)
+      .filter((s: VanexSettlement) => filterCourier === 'all' || s.courierCompanyId === filterCourier)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   }, [mySettlements, filterStatus, filterCourier]);
 
@@ -86,7 +86,6 @@ export default function SettlementsPage() {
           const data = await res.json();
           if (data.success && data.settlement) {
             setDetailsCache(prev => ({ ...prev, [settlement.id]: data.settlement }));
-            // نحدث الكاش لأنه تم حفظ المبالغ الدقيقة في قاعدة البيانات الآن عبر الـ API
             queryClient.invalidateQueries({ queryKey: ['settlements', tid] });
           }
         }
@@ -94,7 +93,7 @@ export default function SettlementsPage() {
         setLoadingDetails(null);
       }
     }
-  }, [expandedId, detailsCache]);
+  }, [expandedId, detailsCache, queryClient, tid]);
 
   const handleFetch = async (courierId: string) => {
     const courier = myCompanies.find(c => c.id === courierId);
@@ -115,7 +114,6 @@ export default function SettlementsPage() {
   };
 
   const handleApply = async (settlement: VanexSettlement) => {
-    const courier = couriers.find(c => c.id === settlement.courierCompanyId);
     const targetType = settlement.targetAccountType === 'bank' ? 'الخزينة المصرفية' : 'الخزينة النقدية';
 
     const confirmed = window.confirm(
@@ -224,7 +222,7 @@ export default function SettlementsPage() {
         <div>
           <h3 className="text-sm font-bold text-purple-900">نظام التسوية الآلي مفعّل</h3>
           <p className="text-[11px] text-purple-700 leading-relaxed mt-0.5">
-            عند إرسال طلب تسوية، يتم جلبها من فانكس بحالة "قيد الانتظار". وبمجرد أن يوافق عليها محاسب فانكس (حالة مدفوعة)، سيقوم النظام آلياً وبدون تدخل منك بإيداع الأموال في خزينتك كل 15 دقيقة.
+            عند إرسال طلب تسوية، يتم جلبها من فانكس بحالة &quot;قيد الانتظار&quot;. وبمجرد أن يوافق عليها محاسب فانكس (حالة مدفوعة)، سيقوم النظام آلياً وبدون تدخل منك بإيداع الأموال في خزينتك كل 15 دقيقة.
           </p>
         </div>
       </div>
@@ -264,7 +262,7 @@ export default function SettlementsPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-800">{company.name}</p>
                       <p className="text-[11px] text-gray-400">
-                        قيد التحصيل: {formatCurrency((courierAcc as any)?.balance ?? 0)}
+                        قيد التحصيل: {formatCurrency((courierAcc as unknown as TreasuryAccount)?.balance ?? 0)}
                       </p>
                     </div>
                   </div>
@@ -480,7 +478,7 @@ export default function SettlementsPage() {
                           <div className={`text-sm font-semibold ${item.color}`}>
                             {item.value}
                           </div>
-                          {(item as any).note && <div className="text-[9px] text-amber-500 mt-0.5">{(item as any).note}</div>}
+                          {item.note && <div className="text-[9px] text-amber-500 mt-0.5">{item.note}</div>}
                         </div>
                       ))}
                     </div>

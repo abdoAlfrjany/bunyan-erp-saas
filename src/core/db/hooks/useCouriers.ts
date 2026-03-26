@@ -30,7 +30,7 @@ export function useSettlementsQuery(tenantId: string | undefined) {
       if (!tenantId) return [];
       const supabase = createClient();
       const { data, error } = await supabase
-        .from('vanex_settlements')
+        .from('courier_settlements')
         .select('*')
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });

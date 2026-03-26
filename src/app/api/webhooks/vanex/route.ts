@@ -29,6 +29,10 @@ const VANEX_TO_BUNYAN_STATUS: Record<string, string> = {
   store_return:        'return_confirmed',
   store_canceled:      'cancelled',       
   cancelled:           'cancelled',       
+  canceled:            'cancelled',       
+  canceled_by_admin:   'cancelled',       
+  canceled_by_source:  'cancelled',       
+  refused:             'pending_return',  
 };
 
 export async function POST(req: NextRequest) {
@@ -52,7 +56,7 @@ export async function POST(req: NextRequest) {
       .insert({
         source: 'vanex',
         event_type: 'raw_incoming',
-        vanex_package_code: body['package-code'] ?? body.package_code ?? body.data?.['package-code'] ?? 'DEBUG',
+        courier_tracking_code: body['package-code'] ?? body.package_code ?? body.data?.['package-code'] ?? 'DEBUG',
         payload: { body, headers: headersObj },
         processed: false,
       })
@@ -100,7 +104,7 @@ export async function POST(req: NextRequest) {
         .insert({
           source: 'vanex',
           event_type: rawStatus,
-          vanex_package_code: code,
+          courier_tracking_code: code,
           payload: body,
           processed: false,
         })
@@ -130,7 +134,7 @@ export async function POST(req: NextRequest) {
     const { data: existingLog } = await supabaseAdmin
       .from('webhook_logs')
       .select('id')
-      .eq('vanex_package_code', code)
+      .eq('courier_tracking_code', code)
       .eq('event_type', rawStatus)
       .eq('processed', true)
       .neq('id', logId ?? '')
@@ -146,7 +150,7 @@ export async function POST(req: NextRequest) {
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .select('id, tenant_id, status, items, courier_raw_status')
-      .eq('vanex_package_code', code)
+      .eq('courier_tracking_code', code)
       .limit(1)
       .single();
 
@@ -194,7 +198,7 @@ export async function POST(req: NextRequest) {
       // استرداد المخزون
       const items = Array.isArray(order.items) ? order.items : [];
       if (items.length > 0) {
-        const restorePayload = items.map((i: any) => ({
+        const restorePayload = items.map((i: { productId: string; quantity: number; variantSize?: string | null }) => ({
           product_id: i.productId,
           qty: i.quantity,
           variant_size: i.variantSize || null,
@@ -230,17 +234,18 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
 
-  } catch (err: any) {
-    console.error('[POST /api/webhooks/vanex] Error:', err);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'unknown error';
+    console.error('[POST /api/webhooks/vanex] Error:', errorMsg);
 
     // تسجيل الخطأ في webhook_logs إذا أمكن
     if (logId) {
       try {
         await supabaseAdmin
           .from('webhook_logs')
-          .update({ error: err.message ?? 'unknown error' })
+          .update({ error: (err instanceof Error ? err.message : String(err)) || 'unknown error' })
           .eq('id', logId);
-      } catch (_) {}
+      } catch { }
     }
 
     // دائماً return 200 — Vanex يعيد المحاولة عند أي خطأ

@@ -10,6 +10,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 
+interface OrderItem {
+  productId: string;
+  quantity: number;
+  variantSize?: string;
+  [key: string]: unknown;
+}
+
 function getAdminClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,7 +41,7 @@ export async function DELETE(
     // 1. جلب الطلبية
     const { data: order, error: fetchError } = await supabase
       .from('orders')
-      .select('id, tenant_id, status, vanex_package_id, vanex_package_code, items')
+      .select('id, tenant_id, status, courier_package_id, courier_tracking_code, items')
       .eq('id', params.id)
       .single();
 
@@ -47,7 +54,7 @@ export async function DELETE(
     if (tenantError) return tenantError;
 
     // 🛡️ 3. قاعدة العمل: لا يمكن الحذف إذا أُرسلت لفانكس
-    if (order.vanex_package_id || order.vanex_package_code) {
+    if (order.courier_package_id || order.courier_tracking_code) {
       return NextResponse.json(
         { error: 'لا يمكن حذف طلبية مرسلة لشركة التوصيل. استخدم خيار الإلغاء بدلاً من ذلك.' },
         { status: 403 }
@@ -63,8 +70,8 @@ export async function DELETE(
     }
 
     // 5. استعادة المخزون قبل الحذف (لأن الطلبية خصمت المخزون عند الإنشاء)
-    if (order.items?.length > 0) {
-      const restorePayload = order.items.map((i: any) => ({
+    if (Array.isArray(order.items) && (order.items as unknown[]).length > 0) {
+      const restorePayload = (order.items as unknown as OrderItem[]).map((i) => ({
         product_id: i.productId,
         qty: i.quantity,
         variant_size: i.variantSize || null,
@@ -88,9 +95,9 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[DELETE /api/orders] exception:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }
 
@@ -110,7 +117,7 @@ export async function PATCH(
     // 1. جلب الطلبية
     const { data: order, error: fetchError } = await supabase
       .from('orders')
-      .select('id, tenant_id, status, vanex_package_id, vanex_package_code, items')
+      .select('id, tenant_id, status, courier_package_id, courier_tracking_code, items')
       .eq('id', params.id)
       .single();
 
@@ -123,7 +130,7 @@ export async function PATCH(
     if (tenantError) return tenantError;
 
     // 🛡️ 3. قاعدة العمل: لا يمكن التعديل بعد الإرسال لفانكس
-    if (order.vanex_package_id || order.vanex_package_code) {
+    if (order.courier_package_id || order.courier_tracking_code) {
       return NextResponse.json(
         { error: 'لا يمكن تعديل طلبية بعد إرسالها لشركة التوصيل.' },
         { status: 403 }
@@ -154,8 +161,8 @@ export async function PATCH(
     // 6. التعامل مع تعديل المنتجات (Inventory Shift)
     if (updates.items && Array.isArray(updates.items)) {
       // أ. استعادة المخزون القديم أولاً (إذا وُجد)
-      if (order.items?.length > 0) {
-        const restorePayload = (order.items as any[]).map((i: any) => ({
+      if (Array.isArray(order.items) && (order.items as unknown[]).length > 0) {
+        const restorePayload = (order.items as unknown as OrderItem[]).map((i) => ({
           product_id: i.productId,
           qty: i.quantity,
           variant_size: i.variantSize || null,
@@ -164,7 +171,7 @@ export async function PATCH(
       }
 
       // ب. خصم المخزون الجديد
-      const deductPayload = (updates.items as any[]).map((i: any) => ({
+      const deductPayload = (updates.items as unknown as OrderItem[]).map((i) => ({
           product_id: i.productId,
           qty: i.quantity,
           variant_size: i.variantSize || null,
@@ -175,8 +182,8 @@ export async function PATCH(
 
       if (deductError) {
           // إذا فشل الخصم (نقص مخزون مثلاً)، يجب إعادة المخزون القديم لضمان الاتساق
-          if (order.items?.length > 0) {
-            const restoreAgain = (order.items as any[]).map((i: any) => ({
+          if (Array.isArray(order.items) && (order.items as unknown[]).length > 0) {
+            const restoreAgain = (order.items as unknown as OrderItem[]).map((i) => ({
                 product_id: i.productId,
                 qty: i.quantity,
                 variant_size: i.variantSize || null,
@@ -201,8 +208,8 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[PATCH /api/orders/[id]] exception:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }

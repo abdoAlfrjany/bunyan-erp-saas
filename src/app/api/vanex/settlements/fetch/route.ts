@@ -44,9 +44,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'الشركة غير مربوطة بـ API — يرجى تسجيل الدخول لحساب الشركة من صفحة إدارة الشركات أولاً' }, { status: 400 });
     }
 
-    // 2. جلب التسويات من فانكس
+    // 2. جلب نسبة عمولة البنك للمستأجر
+    const { data: tenant } = await supabaseAdmin
+      .from('tenants')
+      .select('bank_commission_percentage')
+      .eq('id', auth.tenantId)
+      .single();
+
+    const commissionRate = (tenant?.bank_commission_percentage ?? 2.0) / 100;
+
+    // 3. جلب التسويات من فانكس
     const adapter = new VanexAdapter();
-    const settlements = await adapter.getSettlements(token, 'approved');
+    const settlements = await adapter.getSettlements(token, 'approved', commissionRate);
 
     if (!settlements || settlements.length === 0) {
       return NextResponse.json({ success: true, inserted: 0, skipped: 0, message: 'لا توجد تسويات جديدة من فانكس' });
@@ -71,7 +80,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const { data: inserted, error: insertError } = await supabaseAdmin
-      .from('vanex_settlements')
+      .from('courier_settlements')
       .upsert(rows, {
         onConflict: 'tenant_id,vanex_settlement_id',
         ignoreDuplicates: true, // تجاهل المكررة — لا نُحدّث المطبّقة!
@@ -92,8 +101,8 @@ export async function POST(req: NextRequest) {
       skipped: skippedCount,
       total: settlements.length,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[POST /api/vanex/settlements/fetch] Error:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }

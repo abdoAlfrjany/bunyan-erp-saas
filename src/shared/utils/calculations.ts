@@ -3,7 +3,7 @@
 // القاعدة: "لا حسابات مالية في components" — _DOCS/1_SYSTEM_RULES.md
 // المرجع: Dashboard, Partners, Treasury
 
-import type { Order, Partner, TreasuryAccount, TreasuryTransaction, Employee } from '@/core/db/seed';
+import type { Order, Partner, TreasuryAccount, Employee } from '@/core/db/seed';
 
 /** إجمالي الإيرادات: مجموع total لكل الطلبيات المسلّمة */
 export function calcTotalRevenue(orders: Order[]): number {

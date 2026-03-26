@@ -3,29 +3,31 @@
 // الإصدار 2.0: هجرة كاملة لـ Supabase (Hybrid Sync)
 
 import type { StateCreator } from 'zustand';
-import type { Partner, Employee, Debt, TreasuryTransaction } from '../../types';
+import type { Partner, Employee, Debt, TreasuryTransaction, TreasuryAccount } from '../../types';
 import { createClient } from '../supabase';
 import { useRulesStore } from '../../settings/rules.store';
 
 // ══════════════════════════════════════════
 // Mappers: Supabase (snake_case) ↔ App (camelCase)
 // ══════════════════════════════════════════
-export const mapRowToPartner = (row: any): Partner => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  name: row.name,
-  phone: row.phone ?? '',
-  email: row.email,
-  profitPercentage: Number(row.profit_percentage || 0),
-  capitalContribution: Number(row.capital_contribution || 0),
-  walletBalance: Number(row.wallet_balance || 0),
-  debtBalance: Number(row.debt_balance || 0),
-  isActive: row.is_active ?? true,
-  joinedAt: row.joined_at ?? new Date().toISOString(),
-  userId: row.user_id,
-  partnerRole: row.partner_role || 'active_partner',
-  deliveryFeePerOrder: Number(row.delivery_fee_per_order || 0),
-});
+export const mapRowToPartner = (row: Record<string, unknown>): Partner => {
+  return {
+    id: row['id'] as string,
+    tenantId: row['tenant_id'] as string,
+    name: row['name'] as string,
+    phone: (row['phone'] as string) ?? '',
+    email: row['email'] as string,
+    profitPercentage: Number(row['profit_percentage'] || 0),
+    capitalContribution: Number(row['capital_contribution'] || 0),
+    walletBalance: Number(row['wallet_balance'] || 0),
+    debtBalance: Number(row['debt_balance'] || 0),
+    isActive: (row['is_active'] as boolean) ?? true,
+    joinedAt: (row['joined_at'] as string) ?? new Date().toISOString(),
+    userId: row['user_id'] as string,
+    partnerRole: (row['partner_role'] as Partner['partnerRole']) || 'active_partner',
+    deliveryFeePerOrder: Number(row['delivery_fee_per_order'] || 0),
+  };
+};
 
 const mapPartnerToRow = (p: Partial<Partner> & { tenantId?: string }) => ({
   name: p.name,
@@ -44,29 +46,31 @@ const mapPartnerToRow = (p: Partial<Partner> & { tenantId?: string }) => ({
   ...(p.tenantId ? { tenant_id: p.tenantId } : {}),
 });
 
-export const mapRowToEmployee = (row: any): Employee => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  name: row.name,
-  phone: row.phone ?? '',
-  email: row.email,
-  salary: Number(row.salary || 0),
-  startDate: row.start_date ?? new Date().toISOString(),
-  salaryDay: Number(row.salary_day || 25),
-  advanceBalance: Number(row.advance_balance || 0),
-  allowanceBalance: Number(row.allowance_balance || 0),
-  deductionBalance: Number(row.deduction_balance || 0),
-  isActive: row.is_active ?? true,
-  userId: row.user_id,
-  hasSystemAccess: row.has_system_access ?? false,
-  status: row.status || 'active',
-  jobTitle: row.job_title,
-  employmentType: row.employment_type || 'full_time',
-  nationalId: row.national_id,
-  personalAddress: row.personal_address,
-  lastPaymentDate: row.last_payment_date,
-  lastPayrollDate: row.last_payroll_date,
-});
+export const mapRowToEmployee = (row: Record<string, unknown>): Employee => {
+  return {
+    id: row['id'] as string,
+    tenantId: row['tenant_id'] as string,
+    name: row['name'] as string,
+    phone: (row['phone'] as string) ?? '',
+    email: row['email'] as string,
+    salary: Number(row['salary'] || 0),
+    startDate: (row['start_date'] as string) ?? new Date().toISOString(),
+    salaryDay: Number(row['salary_day'] || 25),
+    advanceBalance: Number(row['advance_balance'] || 0),
+    allowanceBalance: Number(row['allowance_balance'] || 0),
+    deductionBalance: Number(row['deduction_balance'] || 0),
+    isActive: (row['is_active'] as boolean) ?? true,
+    userId: row['user_id'] as string,
+    hasSystemAccess: (row['has_system_access'] as boolean) ?? false,
+    status: (row['status'] as Employee['status']) || 'active',
+    jobTitle: row['job_title'] as string,
+    employmentType: (row['employment_type'] as Employee['employmentType']) || 'full_time',
+    nationalId: row['national_id'] as string,
+    personalAddress: row['personal_address'] as string,
+    lastPaymentDate: row['last_payment_date'] as string,
+    lastPayrollDate: row['last_payroll_date'] as string,
+  };
+};
 
 const mapEmployeeToRow = (e: Partial<Employee> & { tenantId?: string }) => ({
   name: e.name,
@@ -113,8 +117,9 @@ async function createAuthUser(params: {
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error };
     return { success: true, userId: data.userId };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error: msg };
   }
 }
 
@@ -162,9 +167,20 @@ export interface PartnersEmployeesSlice {
 }
 
 // ══════════════════════════════════════════
+// Local State Subset to avoid circular dependency
+// ══════════════════════════════════════════
+type StateSubset = PartnersEmployeesSlice & {
+  treasury: TreasuryAccount[];
+  transactions: TreasuryTransaction[];
+  debts: Debt[];
+  addTransaction: (tx: TreasuryTransaction) => Promise<{ success: boolean; error?: string }>;
+  addDebt: (debt: Debt) => Promise<{ success: boolean; error?: string }>;
+};
+
+// ══════════════════════════════════════════
 // Slice Implementation
 // ══════════════════════════════════════════
-export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmployeesSlice> = (set, get) => ({
+export const createPartnersEmployeesSlice: StateCreator<StateSubset, [], [], PartnersEmployeesSlice> = (set, get) => ({
   partners: [],
   employees: [],
 
@@ -180,7 +196,9 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
         .limit(200);
       if (error) throw error;
       set({ partners: (data || []).map(mapRowToPartner) });
-    } catch (e: any) { console.error('fetchPartners error:', e.message); }
+    } catch (e) {
+      if (e instanceof Error) console.error('fetchPartners error:', e.message);
+    }
   },
 
   // ══ ADD PARTNER ══
@@ -190,7 +208,8 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       let userId: string | undefined;
 
       // إذا كان للشريك بريد إلكتروني وكلمة مرور → إنشاء حساب Auth
-      if (p.email && (p as any).password) {
+      const partnerWithPass = p as Partner & { password?: string };
+      if (p.email && partnerWithPass.password) {
         const partnerPermissions = {
           inventory: { view: false, add: false, edit: false, delete: false, viewCostPrice: false },
           orders: { view: false, add: false, edit: false, delete: false, changeStatus: false, viewAll: false },
@@ -204,7 +223,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
 
         const result = await createAuthUser({
           email: p.email,
-          password: (p as any).password,
+          password: partnerWithPass.password,
           tenantId: p.tenantId,
           fullName: p.name,
           role: 'partner',
@@ -221,18 +240,19 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       }
 
       const rowToInsert = mapPartnerToRow({ ...p, userId: userId || p.userId });
-      const { data, error } = await supabase
+      const { data: insertData, error } = await supabase
         .from('partners')
         .insert([rowToInsert])
         .select()
         .single();
 
       if (error) throw error;
-      set((s: any) => ({ partners: [mapRowToPartner(data), ...s.partners] }));
+      set((s) => ({ partners: [mapRowToPartner(insertData), ...s.partners] }));
       return { success: true };
-    } catch (e: any) {
-      console.error('addPartner error:', e.message);
-      return { success: false, error: e.message };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      console.error('addPartner error:', msg);
+      return { success: false, error: msg };
     }
   },
 
@@ -240,15 +260,17 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
   updatePartner: async (id, data) => {
     try {
       const supabase = createClient();
-      const row = mapPartnerToRow(data as any);
+      const row = mapPartnerToRow(data) as Record<string, unknown>;
       // إزالة الحقول undefined
-      Object.keys(row).forEach(k => (row as any)[k] === undefined && delete (row as any)[k]);
+      Object.keys(row).forEach(k => row[k] === undefined && delete row[k]);
       const { error } = await supabase.from('partners').update(row).eq('id', id);
       if (error) throw error;
-      set((s: any) => ({
+      set((s) => ({
         partners: s.partners.map((p: Partner) => (p.id === id ? { ...p, ...data } : p)),
       }));
-    } catch (e: any) { console.error('updatePartner error:', e.message); }
+    } catch (e) {
+      if (e instanceof Error) console.error('updatePartner error:', e.message);
+    }
   },
 
   // ══ DELETE PARTNER ══
@@ -271,10 +293,11 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       }
       const { error } = await supabase.from('partners').delete().eq('id', id);
       if (error) throw error;
-      set((s: any) => ({ partners: s.partners.filter((p: Partner) => p.id !== id) }));
+      set((s) => ({ partners: s.partners.filter((p: Partner) => p.id !== id) }));
       return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 
@@ -288,7 +311,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       return { success: false, error: 'الرصيد المطلوب يتجاوز المتاح في محفظة الشريك' };
 
     const cashAccount = state.treasury.find(
-      (a: any) => a.tenantId === partner.tenantId && a.accountType === 'cash_in_hand'
+      (a) => a.tenantId === partner.tenantId && a.accountType === 'cash_in_hand'
     );
     if (!cashAccount) return { success: false, error: 'حساب الخزينة (الكاش) غير موجود' };
 
@@ -327,7 +350,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       });
     }
 
-    const newTreasury = state.treasury.map((a: any) =>
+    const newTreasury = state.treasury.map((a) =>
       a.id === cashAccount.id ? { ...a, balance: a.balance - actualPaid } : a
     );
 
@@ -438,7 +461,9 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
         .limit(200);
       if (error) throw error;
       set({ employees: (data || []).map(mapRowToEmployee) });
-    } catch (e: any) { console.error('fetchEmployees error:', e.message); }
+    } catch (e) {
+      if (e instanceof Error) console.error('fetchEmployees error:', e.message);
+    }
   },
 
   // ══ ADD EMPLOYEE ══
@@ -448,7 +473,8 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       let userId: string | undefined;
 
       // إذا كان للموظف hasSystemAccess + بيانات دخول → إنشاء حساب Auth
-      if (e.hasSystemAccess && e.email && (e as any).password) {
+      const empWithPass = e as Employee & { password?: string };
+      if (e.hasSystemAccess && e.email && empWithPass.password) {
         const employeePermissions = {
           inventory: { view: true, add: false, edit: false, delete: false, viewCostPrice: false },
           orders: { view: true, add: true, edit: false, delete: false, changeStatus: true, viewAll: false },
@@ -462,7 +488,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
 
         const result = await createAuthUser({
           email: e.email,
-          password: (e as any).password,
+          password: empWithPass.password,
           tenantId: e.tenantId,
           fullName: e.name,
           role: 'employee',
@@ -478,18 +504,19 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       }
 
       const rowToInsert = mapEmployeeToRow({ ...e, userId: userId || e.userId });
-      const { data, error } = await supabase
+      const { data: insertData, error } = await supabase
         .from('employees')
         .insert([rowToInsert])
         .select()
         .single();
 
       if (error) throw error;
-      set((s: any) => ({ employees: [mapRowToEmployee(data), ...s.employees] }));
+      set((s) => ({ employees: [mapRowToEmployee(insertData), ...s.employees] }));
       return { success: true };
-    } catch (e_: any) {
-      console.error('addEmployee error:', e_.message);
-      return { success: false, error: e_.message };
+    } catch (e_) {
+      const msg = e_ instanceof Error ? e_.message : 'Unknown error';
+      console.error('addEmployee error:', msg);
+      return { success: false, error: msg };
     }
   },
 
@@ -497,14 +524,16 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
   updateEmployee: async (id, data) => {
     try {
       const supabase = createClient();
-      const row = mapEmployeeToRow(data as any);
-      Object.keys(row).forEach(k => (row as any)[k] === undefined && delete (row as any)[k]);
+      const row = mapEmployeeToRow(data) as Record<string, unknown>;
+      Object.keys(row).forEach(k => row[k] === undefined && delete row[k]);
       const { error } = await supabase.from('employees').update(row).eq('id', id);
       if (error) throw error;
-      set((s: any) => ({
+      set((s) => ({
         employees: s.employees.map((e: Employee) => (e.id === id ? { ...e, ...data } : e)),
       }));
-    } catch (e: any) { console.error('updateEmployee error:', e.message); }
+    } catch (e) {
+      if (e instanceof Error) console.error('updateEmployee error:', e.message);
+    }
   },
 
   // ══ DELETE EMPLOYEE ══
@@ -526,10 +555,11 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       }
       const { error } = await supabase.from('employees').delete().eq('id', id);
       if (error) throw error;
-      set((s: any) => ({ employees: s.employees.filter((e: Employee) => e.id !== id) }));
+      set((s) => ({ employees: s.employees.filter((e: Employee) => e.id !== id) }));
       return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 
@@ -537,7 +567,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
   issuePayroll: (tenantId, monthString, details) => {
     const state = get();
     const cashAccount = state.treasury.find(
-      (a: any) => a.tenantId === tenantId && a.accountType === 'cash_in_hand'
+      (a) => a.tenantId === tenantId && a.accountType === 'cash_in_hand'
     );
     if (!cashAccount) return { success: false, error: 'لا يوجد حساب خزينة (كاش) متاح' };
 
@@ -614,7 +644,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       };
     });
 
-    const newTreasury = state.treasury.map((a: any) =>
+    const newTreasury = state.treasury.map((a) =>
       a.id === cashAccount.id ? { ...a, balance: a.balance - totalPayout } : a
     );
 
@@ -627,7 +657,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
 
     // إرسال معاملات الرواتب لـ Supabase
     newTxList.forEach(tx => {
-      get().addTransaction(tx).catch((err: any) => console.error('issuePayroll transaction failed:', err));
+      get().addTransaction(tx).catch((err) => console.error('issuePayroll transaction failed:', err));
     });
 
     // تحديث أرصدة الموظفين في Supabase
@@ -662,7 +692,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
 
     if (type === 'advance') {
       const cashAccount = state.treasury.find(
-        (a: any) => a.tenantId === emp.tenantId && a.accountType === 'cash_in_hand'
+        (a) => a.tenantId === emp.tenantId && a.accountType === 'cash_in_hand'
       );
       if (!cashAccount) return { success: false, error: 'لا توجد خزينة كاش متاحة' };
 
@@ -677,7 +707,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       newEmps = newEmps.map((e: Employee) =>
         e.id === employeeId ? { ...e, advanceBalance: e.advanceBalance + amount } : e
       );
-      newTreasury = newTreasury.map((a: any) =>
+      newTreasury = newTreasury.map((a) =>
         a.id === cashAccount.id ? { ...a, balance: a.balance - amount } : a
       );
 
@@ -691,7 +721,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
         createdAt: new Date().toISOString(),
         transactionDate: new Date().toISOString().split('T')[0],
       };
-      newTxList.unshift(newTx);
+      newTxList = [newTx, ...newTxList];
 
       const newAdvanceDebt: Debt = {
         id: crypto.randomUUID(),
@@ -710,7 +740,7 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
         createdAt: new Date().toISOString(),
       };
 
-      set((s: any) => ({
+      set((s) => ({
         employees: newEmps,
         treasury: newTreasury,
         transactions: newTxList,
@@ -721,8 +751,8 @@ export const createPartnersEmployeesSlice: StateCreator<any, [], [], PartnersEmp
       const supabase = createClient();
       supabase.from('employees').update({ advance_balance: emp.advanceBalance + amount }).eq('id', employeeId)
         .then(({ error }) => { if (error) console.error('advance - employee update error:', error.message); });
-      get().addTransaction(newTx).catch((err: any) => console.error('recordEmployeeFinancial transaction failed:', err));
-      get().addDebt(newAdvanceDebt).catch((err: any) => console.error('recordEmployeeFinancial debt failed:', err));
+      get().addTransaction(newTx).catch((err) => console.error('recordEmployeeFinancial transaction failed:', err));
+      get().addDebt(newAdvanceDebt).catch((err) => console.error('recordEmployeeFinancial debt failed:', err));
 
       return { success: true };
     } else if (type === 'bonus') {

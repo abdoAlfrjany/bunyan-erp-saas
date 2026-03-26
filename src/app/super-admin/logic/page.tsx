@@ -1,7 +1,7 @@
 'use client';
 
 import { useRulesStore } from '@/core/settings/rules.store';
-import { Settings2, ShieldAlert, DatabaseZap, Calculator, RotateCcw } from 'lucide-react';
+import { Settings2, ShieldAlert, Calculator, RotateCcw } from 'lucide-react';
 import { useToast } from '@/shared/components/ui/Toast';
 
 export default function LogicRulesPage() {
@@ -9,7 +9,7 @@ export default function LogicRulesPage() {
   const { showToast } = useToast();
 
   const handleToggle = (key: keyof typeof rules) => {
-    updateRules({ [key]: !rules[key] } as any);
+    updateRules({ [key]: !rules[key] } as Partial<typeof rules>);
     showToast('تم تحديث القاعدة المنطقية بنجاح', 'success');
   };
 

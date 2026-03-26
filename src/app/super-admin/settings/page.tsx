@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Palette, Image as ImageIcon, Mail, Code, UploadCloud, Save, Check } from 'lucide-react';
+import { Palette, Image as ImageIcon, Mail, Code, UploadCloud, Save } from 'lucide-react';
 import { useToast } from '@/shared/components/ui/Toast';
 
 export default function SuperAdminSettings() {

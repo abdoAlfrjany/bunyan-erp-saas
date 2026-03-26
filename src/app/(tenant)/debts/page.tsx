@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useUser } from '@/core/auth/hooks';
 import { useDebtsQuery, useCustomersQuery, useEmployeesQuery, usePartnersQuery } from '@/core/db/hooks/useDebts';
 import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
 import { useQueryClient } from '@tanstack/react-query';
-import { useGetForTenant, useAddDebt, useUpdateDebt } from '@/core/db/hooks';
+import { useAddDebt, useUpdateDebt } from '@/core/db/hooks';
 import { formatCurrency, formatDate } from '@/shared/utils/format';
 import { SlideOver } from '@/shared/components/ui/SlideOver';
-import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
 import { FileText, Plus, CheckCircle2, Banknote, CalendarDays, Edit2, AlertTriangle, Eye, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import type { Debt } from '@/core/types';
@@ -23,14 +22,13 @@ export default function DebtsPage() {
   const tid = user?.tenantId || '';
   const queryClient = useQueryClient();
 
-  const { data: debts = [], isLoading: isDebtsLoading } = useDebtsQuery(tid);
+  const { data: debts = [] } = useDebtsQuery(tid);
   const { data: treasuryData } = useTreasuryQuery(tid);
   const treasury = treasuryData?.accounts || [];
   const { data: customers = [] } = useCustomersQuery(tid);
   const { data: employees = [] } = useEmployeesQuery(tid);
   const { data: partners = [] } = usePartnersQuery(tid);
 
-  const getForTenant = useGetForTenant();
   const addDebt = useAddDebt();
   const updateDebt = useUpdateDebt();
   const { showToast } = useToast();
@@ -90,7 +88,7 @@ export default function DebtsPage() {
       return;
     }
 
-    const isIncome = debt ? ['customer', 'employee_advance', 'partner_advance', 'custody'].includes(debt.debtCategory) : false;
+    // const isIncome = debt ? ['customer', 'employee_advance', 'partner_advance', 'custody'].includes(debt.debtCategory) : false;
 
     // استخدام الـ API الجديد لعملية ذرية (Atomic)
     fetch('/api/debts/pay', {
@@ -518,7 +516,7 @@ export default function DebtsPage() {
                          </tr>
                        </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {(historySlide.paymentHistory as any[]).map((ph, idx) => (
+                          {(historySlide.paymentHistory as { date: string, amount: number }[]).map((ph, idx) => (
                            <tr key={idx} className="hover:bg-gray-50 transition-colors">
                              <td className="px-4 py-3 text-gray-500 font-mono text-xs">{formatDate(ph.date)}</td>
                              <td className="px-4 py-3 text-emerald-600 font-black font-currency">{formatCurrency(ph.amount)}</td>

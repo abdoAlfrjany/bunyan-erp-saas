@@ -6,13 +6,45 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 
+interface OrderItem {
+  id: string;
+  productId: string;
+  productName: string;
+  variantSize?: string;
+  quantity: number;
+  unitPrice: number;
+  unitCost: number;
+  total: number;
+}
+
+interface OrderPayload {
+  id?: string;
+  tenantId: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerCity: string;
+  customerAddress?: string;
+  deliveryType: 'internal' | 'courier_company' | 'pickup';
+  deliveryFee?: number;
+  courierCompanyId?: string;
+  vanexPackageCode?: string;
+  courierRawStatus?: string;
+  status?: string;
+  total: number;
+  subtotal?: number;
+  discount?: number;
+  paymentStatus?: string;
+  items: OrderItem[];
+}
+
 export async function POST(req: NextRequest) {
   try {
     // 🔒 1. تحقق من المصادقة
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    const o = await req.json();
+    const o = (await req.json()) as OrderPayload;
 
     // 🔒 2. تحقق من ملكية التنانت
     const tenantError = assertTenantMatch(auth, o.tenantId);
@@ -29,7 +61,7 @@ export async function POST(req: NextRequest) {
     );
 
     // 3. فحص المخزون الصارم من قاعدة البيانات
-    const productIds = o.items.map((i: any) => i.productId);
+    const productIds = o.items.map((i) => i.productId);
     const { data: dbProducts, error: dbProductsError } = await supabaseAdmin
       .from('products')
       .select('id, name, product_type, quantity, unit, variants')
@@ -47,7 +79,8 @@ export async function POST(req: NextRequest) {
       }
 
       if (product.product_type !== 'simple' && item.variantSize && product.variants) {
-        const variant = product.variants.find((v: any) => v.size === item.variantSize);
+        const variants = product.variants as unknown as { size: string; quantity: number }[];
+        const variant = variants.find((v) => v.size === item.variantSize);
         if (variant && variant.quantity < item.quantity) {
           return NextResponse.json({
             error: `المقاس "${item.variantSize}" للمنتج "${item.productName}" غير متوفر بالكمية المطلوبة (متبقي ${variant.quantity})`
@@ -73,7 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. إرسال الطلبية لـ Supabase
-    const mappedRow: any = {
+    const mappedRow: Record<string, unknown> = {
       ...(o.id ? { id: o.id } : {}),
       tenant_id: o.tenantId,
       order_number: o.orderNumber,
@@ -87,7 +120,7 @@ export async function POST(req: NextRequest) {
       payment_status: o.paymentStatus || 'pending',
       delivery_fee: o.deliveryFee || 0,
       courier_company_id: o.courierCompanyId ?? null,
-      vanex_package_code: o.vanexPackageCode ?? null,
+      courier_tracking_code: o.vanexPackageCode ?? null,
       courier_raw_status: o.courierRawStatus ?? null,
       discount: o.discount || 0,
       subtotal: o.subtotal || o.total,
@@ -111,7 +144,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. خصم المخزون باستخدام الدالة الآمنة (RPC)
-    const inventoryPayload = o.items.map((i: any) => ({
+    const inventoryPayload = o.items.map((i) => ({
       product_id: i.productId,
       qty: i.quantity,
       variant_size: i.variantSize || null
@@ -153,8 +186,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, order: insertData });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[POST /api/orders] exception:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي في الخادم' }, { status: 500 });
   }
 }

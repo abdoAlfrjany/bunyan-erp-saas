@@ -35,7 +35,6 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
     }))
   );
   // ✅ tenants array — useShallow يقارن محتوى المصفوفة
-  const tenants = useDataStore(useShallow(s => s.tenants));
   const { showToast } = useToast();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);

@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
-import { vanexAdapter, VANEX_TO_BUNYAN_STATUS } from '@/core/delivery/VanexAdapter';
+import { vanexAdapter } from '@/core/delivery/VanexAdapter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     // 1. جلب الطلبية
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, tenant_id, vanex_package_code, vanex_package_id, courier_company_id, status')
+      .select('id, tenant_id, courier_tracking_code, courier_package_id, courier_company_id, status')
       .eq('id', orderId)
       .single();
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const tenantError = assertTenantMatch(auth, order.tenant_id);
     if (tenantError) return tenantError;
 
-    if (!order.vanex_package_code) {
+    if (!order.courier_tracking_code) {
       return NextResponse.json({ error: 'هذه الطلبية لم تُرسل لفانكس' }, { status: 400 });
     }
 
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. جلب الحالة من فانكس
-    const statusResult = await vanexAdapter.getShipmentStatus(order.vanex_package_code, token);
+    const statusResult = await vanexAdapter.getShipmentStatus(order.courier_tracking_code, token);
     const newBunyanStatus = statusResult.bunyanStatus;
     const rawStatus = statusResult.rawStatus;
 
@@ -95,8 +95,9 @@ export async function POST(req: NextRequest) {
       lastUpdate: statusResult.lastUpdate,
       statusChanged: updatePayload.status !== undefined,
     });
-  } catch (err: any) {
-    console.error('[POST /api/vanex/track] Error:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'unknown error';
+    console.error('[POST /api/vanex/track] Error:', errorMsg);
+    return NextResponse.json({ error: errorMsg || 'خطأ داخلي' }, { status: 500 });
   }
 }

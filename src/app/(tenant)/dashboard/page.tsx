@@ -9,28 +9,18 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 
 import Link from 'next/link';
 import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
 import {
   useTenantId,
   useTenantOrders,
   useTenantProducts,
-  useTenantPartners,
-  useTenantDebts,
   useCashBalance,
   useCourierPendingBalance,
-  useTenantTreasury,
 } from '@/shared/hooks';
 import {
   formatCurrency,
   formatRelativeTime,
 } from '@/shared/utils/format';
-import {
-  calcMonthlySales,
-  calcTodaySales,
-  calcTopProducts,
-  calcPartnerShares,
-} from '@/shared/utils/calculations';
-import { ORDER_STATUS } from '@/shared/utils/statusColors';
+import { calcMonthlySales, calcTodaySales, calcTopProducts } from '@/shared/utils/calculations';
 import { StatusBadge } from '@/shared/components/ui';
 import {
   Wallet,
@@ -38,14 +28,14 @@ import {
   ShoppingCart,
   Clock,
   TrendingUp,
-  Package,
   ChevronLeft,
   AlertCircle,
-  Crown,
   BarChart3,
   ShieldAlert,
+  Sparkles,
 } from 'lucide-react';
 import { runFullSystemDiagnostic } from '@/core/utils/systemDiagnostics';
+import { runUiUxAudit } from '@/core/utils/uiUxDiagnostics';
 import { useToast } from '@/shared/components/ui/Toast';
 import dynamic from 'next/dynamic';
 
@@ -64,6 +54,7 @@ export default function DashboardPage() {
   const tid = useTenantId();
   const { showToast } = useToast();
   const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [isAuditing, setIsAuditing] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -73,8 +64,6 @@ export default function DashboardPage() {
   // ═══ بيانات مُحسَّنة بـ selectors (لا يُعاد render إلا عند تغيير البيانات المعنية) ═══
   const myOrders = useTenantOrders();
   const myProducts = useTenantProducts();
-  const myPartners = useTenantPartners();
-  const myDebts = useTenantDebts();
   const cashBalance = useCashBalance();
   const courierPending = useCourierPendingBalance();
 
@@ -90,10 +79,26 @@ export default function DashboardPage() {
         ? `✅ Health Score: ${score}/100 — ${report.summary.passed}/${report.summary.total} اختبار ناجح`
         : `⚠️ Health Score: ${score}/100 — ${report.summary.failed} فشل من ${report.summary.total} — راجع Console`;
       showToast(msg, passed ? 'success' : 'error');
-    } catch (err: any) {
-      showToast(err.message || 'حدث خطأ أثناء الفحص الآلي', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'حدث خطأ أثناء الفحص الآلي', 'error');
     } finally {
       setIsDiagnosing(false);
+    }
+  };
+
+  const handleRunUiAudit = async () => {
+    setIsAuditing(true);
+    try {
+      showToast('جاري فحص تناسق التصميم وتجربة المستخدم (UI/UX)...', 'success');
+      const report = await runUiUxAudit();
+      const score = report.summary.score;
+      const grade = report.summary.grade;
+      const msg = `🎨 تقييم التصميم: ${score}/100 — الدرجة: ${grade} | راجع Console للتفاصيل`;
+      showToast(msg, score > 80 ? 'success' : 'warning');
+    } catch {
+      showToast('حدث خطأ أثناء فحص التصميم', 'error');
+    } finally {
+      setIsAuditing(false);
     }
   };
 
@@ -105,7 +110,6 @@ export default function DashboardPage() {
   );
   const monthlySalesData = useMemo(() => calcMonthlySales(myOrders), [myOrders]);
   const topProducts = useMemo(() => calcTopProducts(myOrders), [myOrders]);
-  const partnerShares = useMemo(() => calcPartnerShares(myPartners), [myPartners]);
 
   // آخر 5 طلبيات
   const recentOrders = useMemo(() => {
@@ -193,6 +197,7 @@ export default function DashboardPage() {
             <button
               onClick={handleRunDiagnostic}
               disabled={isDiagnosing}
+              aria-label="تشغيل فحص صحة النظام"
               className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200
                 rounded-xl text-red-700 text-sm hover:bg-red-100 transition-all font-bold disabled:opacity-50 shadow-sm"
             >
@@ -200,9 +205,22 @@ export default function DashboardPage() {
               <span>{isDiagnosing ? 'جاري الفحص...' : 'فحص صحة النظام'}</span>
             </button>
           )}
+          {user?.role === 'owner' && (
+            <button
+              onClick={handleRunUiAudit}
+              disabled={isAuditing}
+              aria-label="تشغيل فحص جودة التصميم"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200
+                rounded-xl text-indigo-700 text-sm hover:bg-indigo-100 transition-all font-bold disabled:opacity-50 shadow-sm"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>{isAuditing ? 'جاري التدقيق...' : 'فحص جودة التصميم'}</span>
+            </button>
+          )}
           {lowStockCount > 0 && (
             <Link
               href="/inventory"
+              aria-label="عرض المنتجات التي تنفد من المخزون"
               className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200
                 rounded-xl text-amber-700 text-sm hover:bg-amber-100 transition-colors font-medium"
             >
@@ -345,6 +363,7 @@ export default function DashboardPage() {
           </h2>
           <Link
             href="/orders"
+            aria-label="عرض جميع الطلبيات"
             className="text-sm font-semibold text-bunyan-600 hover:text-bunyan-700
               flex items-center gap-1 transition-colors"
           >

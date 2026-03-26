@@ -4,13 +4,12 @@
 
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/core/auth/store';
 import { Shield, LogOut, LayoutDashboard, Store, CreditCard, Bell, Search, Menu, X, Settings2, Megaphone, MapPin } from 'lucide-react';
 import { cn } from '@/shared/utils/cn';
-import { useState } from 'react';
 import { Logo } from '@/shared/components/ui/Logo';
 
 const NAV = [
@@ -24,8 +23,7 @@ const NAV = [
 ];
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, isLoading, setUser, logout } = useAuthStore();
-  const router = useRouter();
+  const { user, isAuthenticated, isLoading, logout } = useAuthStore();
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 

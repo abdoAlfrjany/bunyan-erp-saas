@@ -25,14 +25,25 @@ const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false 
 const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
 const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
 
+interface DashboardTenant {
+  id: string;
+  name: string;
+  ownerName: string;
+  ownerEmail: string;
+  city: string | null;
+  isActive: boolean;
+  plan: string;
+  createdAt: string;
+}
+
 export default function SuperAdminDashboard() {
   const router = useRouter();
   const { enterTenantAsAdmin, user } = useAuthStore();
-  const { tenants, toggleTenant, subscriptions, addAuditLog } = useDataStore();
+  const { toggleTenant, subscriptions, addAuditLog } = useDataStore();
   const { showToast } = useToast();
   const [mounted, setMounted] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [supabaseTenants, setSupabaseTenants] = useState<any[]>([]);
+  const [supabaseTenants, setSupabaseTenants] = useState<DashboardTenant[]>([]);
   const activeTenants = supabaseTenants.filter(t => t.isActive);
   const frozenTenants = supabaseTenants.filter(t => !t.isActive);
   const totalRevenue = Math.round(subscriptions.reduce((s, sub) => s + (sub.amount ?? 0), 0));
@@ -117,7 +128,7 @@ export default function SuperAdminDashboard() {
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {STATS.map((stat, i) => (
+        {STATS.map((stat) => (
           <div
             key={stat.label}
             className="group bg-white rounded-2xl border border-gray-200/80 p-5 
@@ -177,7 +188,7 @@ export default function SuperAdminDashboard() {
                       tick={{ fontSize: 12, fill: '#64748b' }} />
                     <Tooltip
                       contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', padding: '12px' }}
-                      formatter={(v: any) => [`${v} د.ل`, 'الإيرادات']}
+                      formatter={(v: string | number | readonly (string | number)[] | undefined) => [`${v ?? 0} د.ل`, 'الإيرادات']}
                       labelStyle={{ color: '#0f172a', fontWeight: 'bold', marginBottom: '4px' }}
                     />
                     <Area type="monotone" dataKey="value" stroke="#8b5cf6"

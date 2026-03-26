@@ -3,7 +3,7 @@
 // القاعدة: كل selector يُرجع قيمة واحدة أو مصفوفة مستقرة — ممنوع useDataStore() بلا selector
 
 import { useDataStore } from './store';
-import { useShallow } from 'zustand/react/shallow';
+
 
 // ══ Arrays ══
 export const useAllOrders          = () => useDataStore(s => s.orders);

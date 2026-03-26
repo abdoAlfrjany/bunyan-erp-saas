@@ -7,10 +7,6 @@ import {
   Plus,
   Trash2,
   Check,
-  AlertTriangle,
-  Footprints,
-  Sparkles,
-  ChevronLeft,
   ChevronDown,
   Search,
   AlertCircle,
@@ -18,6 +14,8 @@ import {
 import { useDataStore } from "@/core/db/store";
 import { useAuthStore } from "@/core/auth/store";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTreasuryQuery } from "@/core/db/hooks/useTreasury";
+import { useProductsQuery } from "@/core/db/hooks/useProducts";
 import { useToast } from "./Toast";
 import { generateSKU, cartesian, generateItemCode } from "@/core/utils";
 import { formatCurrency } from "@/shared/utils/format";
@@ -42,17 +40,34 @@ const DEFAULT_CATEGORY_OPTS: {
 const SIZES_CLOTHING = ["S", "M", "L", "XL", "XXL"];
 const SIZES_SHOES = ["38", "39", "40", "41", "42", "43", "44", "45"];
 
+const DEFAULT_UNIT_OPTS = ["قطعة", "كيلو", "لتر", "متر", "علبة"];
+
 export function AddProductSlideOver({
   isOpen,
   onClose,
   editProduct,
 }: AddProductSlideOverProps) {
   const { user } = useAuthStore();
-  const { products, treasury, getForTenant, addProduct, updateProduct, customCategories: storeCustomCategories, addCustomCategory, customUnits: storeCustomUnits, addCustomUnit } =
-    useDataStore();
+  const { 
+    getForTenant, 
+    addProduct, 
+    updateProduct, 
+    customCategories: storeCustomCategories, 
+    addCustomCategory, 
+    customUnits: storeCustomUnits, 
+    addCustomUnit 
+  } = useDataStore();
+  
   const { showToast } = useToast();
   const tid = user?.tenantId || "";
   const queryClient = useQueryClient();
+
+  // ✅ جلب البيانات من React Query (المصدر الحقيقي للبيانات السحابية حالياً)
+  const { data: treasuryData } = useTreasuryQuery(tid);
+  const { data: productsData = [] } = useProductsQuery(tid);
+  
+  const treasury = useMemo(() => treasuryData?.accounts || [], [treasuryData?.accounts]);
+  const products = productsData;
 
   const [category, setCategory] = useState<string>("simple");
   const [productName, setProductName] = useState("");
@@ -218,6 +233,7 @@ export function AddProductSlideOver({
 
   // المراقب المالي للمنتج البسيط
   const availableTreasury = useMemo(() => {
+    // نستخدم مصفوفة treasury القادمة من React Query
     const myTreasury = getForTenant(treasury, tid);
     return myTreasury
       .filter((a) => a.accountType === "cash_in_hand")
@@ -263,8 +279,6 @@ export function AddProductSlideOver({
     setNewCatName("");
   };
 
-  const DEFAULT_UNIT_OPTS = ["قطعة", "كيلو", "لتر", "متر", "علبة"];
-  
   const allUnitOpts = useMemo(() => {
     const tenantUnits = storeCustomUnits[tid] || [];
     return [...DEFAULT_UNIT_OPTS, ...tenantUnits];
@@ -364,8 +378,9 @@ export function AddProductSlideOver({
         onClose();
         setIsSuccess(false);
       }, 1500);
-    } catch (err: any) {
-      showToast(err.message || 'حدث خطأ أثناء الحفظ', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      showToast(msg, 'error');
     }
   };
 

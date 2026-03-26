@@ -3,8 +3,8 @@
 import { useState, useMemo } from 'react';
 import { useUser } from '@/core/auth/hooks';
 import { useAllOrders, useAllProducts, useGetForTenant } from '@/core/db/hooks';
-import { formatCurrency, formatDate } from '@/shared/utils/format';
-import { BarChart3, TrendingUp, ShoppingCart, Package, DollarSign, Award, Truck, XCircle, Clock, CalendarDays, AlertTriangle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { formatCurrency } from '@/shared/utils/format';
+import { BarChart3, TrendingUp, ShoppingCart, Package, DollarSign, Award, Truck, XCircle, Clock, AlertTriangle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { Order } from '@/core/types';
 
 export default function AnalyticsPage() {
@@ -145,7 +145,7 @@ export default function AnalyticsPage() {
                ['today','اليوم'],['this_week','الأسبوع'],['this_month','الشهر'],
                ['last_month','الماضي'],['last_3_months','3 أشهر'],['this_year','العام'],
              ].map(([v,l]) => (
-               <button key={v} onClick={() => setPeriod(v as any)}
+               <button key={v} onClick={() => setPeriod(v as 'today' | 'this_week' | 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'custom')}
                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                    period === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                  }`}>{l}</button>
@@ -265,7 +265,7 @@ export default function AnalyticsPage() {
                 if (productRecord) {
                   // حساب المخزون الصحيح بعد جمع المتغيرات (Variants) إن وجدت
                   const totalStock = productRecord.variants && productRecord.variants.length > 0 
-                    ? productRecord.variants.reduce((sum: number, v: any) => sum + v.quantity, 0)
+                    ? productRecord.variants.reduce((sum: number, v: { quantity: number }) => sum + v.quantity, 0)
                     : productRecord.quantity;
                   isLowStock = totalStock <= (productRecord.minQuantity || 0);
                 }

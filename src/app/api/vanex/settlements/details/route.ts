@@ -43,9 +43,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'الشركة غير مربوطة بـ API' }, { status: 400 });
     }
 
-    // 2. طلب التفاصيل من الـ Adapter (الذي يتصل بـ Vanex)
+    // 2. جلب نسبة عمولة البنك للمستأجر
+    const { data: tenant } = await supabaseAdmin
+      .from('tenants')
+      .select('bank_commission_percentage')
+      .eq('id', auth.tenantId)
+      .single();
+
+    const commissionRate = (tenant?.bank_commission_percentage ?? 2.0) / 100;
+
+    // 3. طلب التفاصيل من الـ Adapter (الذي يتصل بـ Vanex)
     const adapter = new VanexAdapter();
-    const settlement = await adapter.getSettlementDetails(Number(vanexId), token);
+    const settlement = await adapter.getSettlementDetails(Number(vanexId), token, commissionRate);
 
     if (!settlement) {
       return NextResponse.json({ error: 'لم يتم العثور على تفاصيل التسوية في فانكس' }, { status: 404 });
@@ -54,7 +63,7 @@ export async function GET(req: NextRequest) {
     // 3. تحديث القيمة في قاعدة البيانات لتصبح دقيقة نهائياً
     // نستخدم الـ Admin client لتحديث الحقول المالية التي تم جلبها الآن
     const { error: updateError } = await supabaseAdmin
-      .from('vanex_settlements')
+      .from('courier_settlements')
       .update({
         delivery_fees: settlement.deliveryFees,
         bank_commission: settlement.bankCommission,
@@ -79,8 +88,8 @@ export async function GET(req: NextRequest) {
       }
     });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[GET /api/vanex/settlements/details] Error:', err);
-    return NextResponse.json({ error: err.message || 'خطأ داخلي' }, { status: 500 });
+    return NextResponse.json({ error: (err as Error).message || 'خطأ داخلي' }, { status: 500 });
   }
 }

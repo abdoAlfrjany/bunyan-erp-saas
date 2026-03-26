@@ -48,7 +48,7 @@ export default function ShipmentsPage() {
           : 'created';
 
         // كود التتبع: VanEx أولاً، ثم المولّد
-        const trackingCode = o.vanex_package_code
+        const trackingCode = o.courier_tracking_code
           || `${courier?.shortCode || 'TRK'}-${o.orderNumber.split('-').pop()}`;
 
         return {
@@ -64,8 +64,8 @@ export default function ShipmentsPage() {
           courierIsConnected: courier?.isApiConnected ?? false,
           courierToken: courier?.apiCredentials?.token,
           trackingCode,
-          vanexPackageCode: o.vanex_package_code,
-          vanexPackageId: o.vanex_package_id,
+          vanexPackageCode: o.courier_tracking_code,
+          vanexPackageId: o.courier_package_id,
           courierRawStatus: o.courier_raw_status,
           status: shipmentStatus,
           amount: o.total,

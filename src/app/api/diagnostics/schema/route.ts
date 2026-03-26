@@ -3,7 +3,7 @@
 // 🔒 محمي بـ requireAuth + يتطلب role === 'owner' | 'super_admin'
 
 import { createClient } from '@supabase/supabase-js';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireAuth } from '@/core/server/auth';
 
 // الجداول التي نراقبها
@@ -27,7 +27,7 @@ const REQUIRED_INDEXES: { table: string; columns: string; label: string }[] = [
   { table: 'partners',              columns: 'tenant_id',    label: 'فهرس tenant للشركاء' },
 ];
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
@@ -49,19 +49,20 @@ export async function GET(req: NextRequest) {
     let columns: { table_name: string; column_name: string; data_type: string; is_nullable: string }[] = [];
     try {
       const { data: colData, error: colErr } = await supabase
-        .rpc('get_schema_columns' as any)
+        .rpc('get_schema_columns')
         .select('*');
 
       if (colErr || !colData) {
         // Fallback: استعلام مباشر على information_schema
-        const { data: rawCols } = await (supabase as any)
+        type SupabaseTableQuery = { from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { in: (k: string, v: string[]) => Promise<{ data: unknown[] | null }> } } } };
+        const { data: rawCols } = await (supabase as unknown as SupabaseTableQuery)
           .from('information_schema.columns')
           .select('table_name, column_name, data_type, is_nullable')
           .eq('table_schema', 'public')
           .in('table_name', MONITORED_TABLES);
-        columns = rawCols || [];
+        columns = (rawCols as unknown as { table_name: string; column_name: string; data_type: string; is_nullable: string }[]) || [];
       } else {
-        columns = colData as any[];
+        columns = (colData as unknown as { table_name: string; column_name: string; data_type: string; is_nullable: string }[]) || [];
       }
     } catch {
       // استعلام SQL مباشر عبر execute_sql إن توفر
@@ -73,17 +74,18 @@ export async function GET(req: NextRequest) {
     let missingIndexes: typeof REQUIRED_INDEXES = [];
     try {
       const { data: idxData } = await supabase
-        .from('pg_indexes' as any)
+        .from('pg_indexes' as unknown as 'profiles')
         .select('tablename, indexname, indexdef')
         .eq('schemaname', 'public')
         .in('tablename', MONITORED_TABLES);
 
       if (idxData && Array.isArray(idxData)) {
-        indexes = (idxData as any[]).map(i => ({
+        interface PgIndex { tablename: string; indexname: string; indexdef: string; }
+        indexes = (idxData as unknown as PgIndex[]).map(i => ({
           table: i.tablename,
           name: i.indexname,
           def: i.indexdef,
-          columns: (i.indexdef as string).match(/\(([^)]+)\)/)?.[1] ?? '',
+          columns: i.indexdef.match(/\(([^)]+)\)/)?.[1] ?? '',
         }));
 
         // كشف الـ Indexes المفقودة
@@ -149,10 +151,10 @@ export async function GET(req: NextRequest) {
         financialColumnsOk: financialColumnGuard.filter(f => f.ok).length,
       },
     });
-  } catch (err: any) {
-    console.error('[API Schema Guard] Error:', err.message);
+  } catch (err: unknown) {
+    console.error('[API Schema Guard] Error:', (err as Error).message);
     return NextResponse.json(
-      { success: false, error: err.message },
+      { success: false, error: (err as Error).message },
       { status: 500 }
     );
   }

@@ -3,45 +3,50 @@
 // الجولة 13: هجرة هجينة — Supabase أولاً ثم Zustand Cache
 
 import type { StateCreator } from 'zustand';
-import type { Order, Notification, TreasuryTransaction } from '../../types';
+import type { Order } from '../../types';
 
 // ══════════════════════════════════════════
 // Helper: Map Supabase row (snake_case) → Order (camelCase)
 // ══════════════════════════════════════════
-export function mapSupabaseRowToOrder(row: any): Order {
+export function mapSupabaseRowToOrder(row: Record<string, unknown>): Order {
+  const getNum = (key: string) => row[key] !== null ? Number(row[key]) : 0;
+  const getStr = (key: string) => (row[key] as string) || '';
+  const getOptStr = (key: string) => (row[key] as string) || undefined;
+  const getBool = (key: string) => !!row[key];
+
   return {
-    id:                   row.id,
-    tenantId:             row.tenant_id,
-    orderNumber:          row.order_number,
-    customerName:         row.customer_name,
-    customerPhone:        row.customer_phone,
-    customerAddress:      row.customer_address ?? undefined,
-    customerCity:         row.customer_city,
-    deliveryType:         row.delivery_type,
-    courierCompanyId:     row.courier_company_id ?? undefined,
-    shipmentId:           row.shipment_id ?? undefined,
-    deliveryFee:          Number(row.delivery_fee ?? 0),
-    status:               row.status,
-    priceIncludesDelivery: row.price_includes_delivery ?? false,
-    source:               row.source ?? undefined,
-    subtotal:             Number(row.subtotal ?? 0),
-    discount:             Number(row.discount ?? 0),
-    total:                Number(row.total ?? 0),
-    paymentStatus:        row.payment_status,
-    notes:                row.notes ?? undefined,
-    items:                Array.isArray(row.items) ? row.items : [],
-    createdAt:            row.created_at,
-    createdBy:            row.created_by ?? undefined,
-    courier_raw_status:   row.courier_raw_status ?? undefined,
-    is_online_payable:    row.is_online_payable ?? undefined,
-    commission_by:        row.commission_by ?? undefined,
-    extra_size_by:        row.extra_size_by ?? undefined,
-    prepaid_amount:       row.prepaid_amount !== null ? Number(row.prepaid_amount) : undefined,
-    partial_delivery:     row.partial_delivery ?? undefined,
-    vanex_package_code:   row.vanex_package_code ?? undefined,
-    vanex_package_id:     row.vanex_package_id ?? undefined,
-    vanexCityId:          row.vanex_city_id ?? undefined,
-    vanexSubCityId:       row.vanex_sub_city_id ?? undefined,
+    id:                   getStr('id'),
+    tenantId:             getStr('tenant_id'),
+    orderNumber:          getStr('order_number'),
+    customerName:         getStr('customer_name'),
+    customerPhone:        getStr('customer_phone'),
+    customerAddress:      getOptStr('customer_address'),
+    customerCity:         getStr('customer_city'),
+    deliveryType:         (row['delivery_type'] as 'internal' | 'courier_company' | 'pickup') || 'internal',
+    courierCompanyId:     getOptStr('courier_company_id'),
+    shipmentId:           getOptStr('shipment_id'),
+    deliveryFee:          getNum('delivery_fee'),
+    status:               (row['status'] as Order['status']) || 'pending',
+    priceIncludesDelivery: getBool('price_includes_delivery'),
+    source:               (row['source'] as Order['source']),
+    subtotal:             getNum('subtotal'),
+    discount:             getNum('discount'),
+    total:                getNum('total'),
+    paymentStatus:        (row['payment_status'] as Order['paymentStatus']) || 'pending',
+    notes:                getOptStr('notes'),
+    items:                Array.isArray(row['items']) ? row['items'] : [],
+    createdAt:            getStr('created_at'),
+    createdBy:            getOptStr('created_by'),
+    courier_raw_status:   getOptStr('courier_raw_status'),
+    is_online_payable:    row['is_online_payable'] as boolean | undefined,
+    commission_by:        row['commission_by'] as 'customer' | 'market' | undefined,
+    extra_size_by:        row['extra_size_by'] as 'customer' | 'market' | undefined,
+    prepaid_amount:       row['prepaid_amount'] !== null ? Number(row['prepaid_amount']) : undefined,
+    partial_delivery:     row['partial_delivery'] as boolean | undefined,
+    courier_tracking_code:   getOptStr('courier_tracking_code'),
+    courier_package_id:     row['courier_package_id'] as number | undefined,
+    courierCityId:          row['courier_city_id'] as number | undefined,
+    courierSubCityId:       row['courier_sub_city_id'] as number | undefined,
   };
 }
 
@@ -50,45 +55,7 @@ export function mapSupabaseRowToOrder(row: any): Order {
 // ══════════════════════════════════════════
 // Helper: Map Order (camelCase) → Supabase row (snake_case)
 // ══════════════════════════════════════════
-function mapOrderToSupabaseRow(o: Order): Record<string, unknown> {
-  // إذا كان tenantId محلي قديم (مثل tenant-001)، نعكف عن إرساله كـ UUID ونعتمد على RLS (الذي يأخذه من session تلقائياً)
-  // أو نُرسل UUID صالح. بما أننا نستخدم RLS، Supabase يفضل أن يكون صحيحاً أو مأخوذاً من auth.uid().
-  
-  return {
-    id:                     o.id || crypto.randomUUID(), // ضمان UUID
-    tenant_id:              o.tenantId,    // إذا كان نصاً قديماً، נرسل null. الـ RLS غالباً سيسمح للمستخدم إذا كان السطر يخصه أو قد يرفض إذا كان Required، لكنه أفضل من 400. الأفضل تسجيل خروج ودخول للحصول على UUID حقيقي
-    order_number:           o.orderNumber,
-    customer_name:          o.customerName,
-    customer_phone:         o.customerPhone,
-    customer_address:       o.customerAddress ?? null,
-    customer_city:          o.customerCity,
-    delivery_type:          o.deliveryType,
-    // تنظيف معرّفات شركة التوصيل الوهمية قبل الإرسال لـ Supabase (لتجنب 400 invalid uuid)
-    courier_company_id:     o.courierCompanyId ?? null,
-    shipment_id:            o.shipmentId ?? null,
-    delivery_fee:           o.deliveryFee,
-    status:                 o.status,
-    price_includes_delivery: o.priceIncludesDelivery,
-    source:                 o.source ?? null,
-    subtotal:               o.subtotal,
-    discount:               o.discount,
-    total:                  o.total,
-    payment_status:         o.paymentStatus,
-    notes:                  o.notes ?? null,
-    items:                  o.items,   // Supabase JSONB
-    created_by:             o.createdBy ?? null,
-    courier_raw_status:     o.courier_raw_status ?? null,
-    is_online_payable:      o.is_online_payable ?? null,
-    commission_by:          o.commission_by ?? null,
-    extra_size_by:          o.extra_size_by ?? null,
-    prepaid_amount:         o.prepaid_amount ?? null,
-    partial_delivery:       o.partial_delivery ?? null,
-    vanex_package_code:     o.vanex_package_code ?? null,
-    vanex_package_id:       o.vanex_package_id ?? null,
-    vanex_city_id:          o.vanexCityId ?? null,
-    vanex_sub_city_id:      o.vanexSubCityId ?? null,
-  };
-}
+
 
 // ══════════════════════════════════════════
 // Interface
@@ -104,7 +71,7 @@ export interface OrdersSlice {
 // ══════════════════════════════════════════
 // Slice Implementation
 // ══════════════════════════════════════════
-export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, get) => ({
+export const createOrdersSlice: StateCreator<OrdersSlice, [], [], OrdersSlice> = (set) => ({
   orders: [],
 
   // ══ FETCH ══
@@ -128,9 +95,10 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
       const mapped: Order[] = (data ?? []).map(mapSupabaseRowToOrder);
       set({ orders: mapped });
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('fetchOrders exception:', err);
-      return { success: false, error: err?.message ?? 'خطأ غير متوقع' };
+      const msg = err instanceof Error ? err.message : 'خطأ غير متوقع';
+      return { success: false, error: msg };
     }
   },
 
@@ -155,9 +123,10 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
       // The calling components (like OrdersPage) will call React Query's refetch()
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('addOrder exception:', err);
-      return { success: false, error: err?.message ?? 'خطأ في الاتصال بالخادم' };
+      const msg = err instanceof Error ? err.message : 'خطأ في الاتصال بالخادم';
+      return { success: false, error: msg };
     }
   },
 
@@ -165,7 +134,6 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
   // ✅ الإصلاح: كل تأثيرات الخزينة والمخزون تُنفَّذ الآن على السيرفر عبر /api/orders/status
   // قبل الإصلاح: كانت حركات الخزينة تُنشأ فقط في Zustand المحلي وتضيع عند إعادة التحميل
   updateOrderStatus: async (id, status, paymentStatus) => {
-    const state = get();
 
     try {
       const res = await fetch('/api/orders/status', {
@@ -185,7 +153,7 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
     }
 
     // تحديث الـ Cache المحلي (optimistic) بعد تأكيد السيرفر
-    set((s: any) => ({
+    set((s: OrdersSlice) => ({
       orders: s.orders.map((o: Order) =>
         o.id === id ? { ...o, status, ...(paymentStatus ? { paymentStatus } : {}) } : o
       ),
@@ -210,16 +178,16 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
       if (data.deliveryType        !== undefined) snakePatch.delivery_type         = data.deliveryType;
       if (data.shipmentId          !== undefined) snakePatch.shipment_id           = data.shipmentId;
       if (data.deliveryFee         !== undefined) snakePatch.delivery_fee          = data.deliveryFee;
-      if (data.vanex_package_code  !== undefined) snakePatch.vanex_package_code    = data.vanex_package_code;
-      if (data.vanex_package_id    !== undefined) snakePatch.vanex_package_id      = data.vanex_package_id;
+      if (data.courier_tracking_code  !== undefined) snakePatch.courier_tracking_code    = data.courier_tracking_code;
+      if (data.courier_package_id    !== undefined) snakePatch.courier_package_id      = data.courier_package_id;
       if (data.courier_raw_status  !== undefined) snakePatch.courier_raw_status    = data.courier_raw_status;
       if (data.is_online_payable   !== undefined) snakePatch.is_online_payable     = data.is_online_payable;
       if (data.commission_by       !== undefined) snakePatch.commission_by         = data.commission_by;
       if (data.extra_size_by       !== undefined) snakePatch.extra_size_by         = data.extra_size_by;
       if (data.prepaid_amount      !== undefined) snakePatch.prepaid_amount        = data.prepaid_amount;
       if (data.partial_delivery    !== undefined) snakePatch.partial_delivery      = data.partial_delivery;
-      if (data.vanexCityId         !== undefined) snakePatch.vanex_city_id         = data.vanexCityId;
-      if (data.vanexSubCityId      !== undefined) snakePatch.vanex_sub_city_id     = data.vanexSubCityId;
+      if (data.courierCityId         !== undefined) snakePatch.courier_city_id         = data.courierCityId;
+      if (data.courierSubCityId      !== undefined) snakePatch.courier_sub_city_id     = data.courierSubCityId;
       if (data.customerName        !== undefined) snakePatch.customer_name         = data.customerName;
       if (data.customerPhone       !== undefined) snakePatch.customer_phone        = data.customerPhone;
       if (data.customerAddress     !== undefined) snakePatch.customer_address      = data.customerAddress;
@@ -237,7 +205,7 @@ export const createOrdersSlice: StateCreator<any, [], [], OrdersSlice> = (set, g
     }
 
     // ── تحديث الـ Cache المحلي ──
-    set((s: any) => ({
+    set((s: OrdersSlice) => ({
       orders: s.orders.map((o: Order) => (o.id === id ? { ...o, ...data } : o)),
     }));
   },

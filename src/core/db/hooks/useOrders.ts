@@ -15,7 +15,7 @@ export function useOrdersQuery(tenantId: string | undefined) {
         .select(`
           id, tenant_id, order_number, customer_name, customer_phone, 
           customer_city, delivery_type, status, total, payment_status, 
-          created_at, delivery_fee, courier_company_id, vanex_package_code, 
+          created_at, delivery_fee, courier_company_id, courier_tracking_code, 
           courier_raw_status, discount, items
         `)
         .eq('tenant_id', tenantId)

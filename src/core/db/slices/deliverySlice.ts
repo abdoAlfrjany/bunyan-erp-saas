@@ -7,7 +7,6 @@ import type {
   VanexCity,
   VanexSubCity,
   VanexSettlement,
-  TreasuryTransaction,
   SuperAdminCourier,
 } from '../../types';
 import { vanexAdapter } from '../../delivery/VanexAdapter';
@@ -43,7 +42,12 @@ export interface DeliverySlice {
   fetchProviderRegions: (cityId: number) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (set, get) => ({
+interface StateSubset extends DeliverySlice {
+  shippingCityMappings: unknown[];
+  couriers: unknown[];
+}
+
+export const createDeliverySlice: StateCreator<StateSubset, [], [], DeliverySlice> = (set, get) => ({
   vanexCities: [],
   vanexSettlements: [],
   vanexSubCities: {},
@@ -59,10 +63,10 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
   providerRegionsData: {},
 
   addSuperAdminCourier: (courier) =>
-    set((s: any) => ({ superAdminCouriers: [courier, ...s.superAdminCouriers] })),
+    set((s: DeliverySlice) => ({ superAdminCouriers: [courier, ...s.superAdminCouriers] })),
 
   updateSuperAdminCourier: (id, data) =>
-    set((s: any) => ({
+    set((s: DeliverySlice) => ({
       superAdminCouriers: s.superAdminCouriers.map((c: SuperAdminCourier) =>
         c.id === id ? { ...c, ...data } : c
       ),
@@ -97,9 +101,10 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       useProviderAuthStore.getState().setActiveProviderToken(authRes.token || null);
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'فشل الاتصال بالخادم';
       console.error('fetchProviderCities ERROR:', err);
-      return { success: false, error: `خطأ Integration: ${err.message || 'فشل الاتصال بالخادم'}` };
+      return { success: false, error: `خطأ Integration: ${errorMsg}` };
     }
   },
 
@@ -117,16 +122,17 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       const regions = await vanexAdapter.getSubCities(cityId, token);
 
       if (regions && regions.length > 0) {
-        set((s: any) => ({
+        set((s: DeliverySlice) => ({
           providerRegionsData: { ...s.providerRegionsData, [cityId]: regions },
         }));
         return { success: true };
       } else {
         return { success: true, error: 'تم استلام استجابة ناجحة ولكن لا توجد مناطق جغرافية لهذه المدينة' };
       }
-    } catch (err: any) {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'خطأ في جلب المناطق';
       console.error('fetchProviderRegions ERROR:', err);
-      return { success: false, error: `خطأ Integration: ${err.message || 'خطأ في جلب المناطق'}` };
+      return { success: false, error: `خطأ Integration: ${errorMsg}` };
     }
   },
 
@@ -148,8 +154,8 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
     }
 
     // ═══ Dedup Guard: منع الإرسال المكرر ═══
-    if (row.vanex_package_id) {
-      return { success: false, error: `هذه الطلبية أُرسلت مسبقاً لفانكس (كود: ${row.vanex_package_code || row.vanex_package_id})` };
+    if (row.courier_package_id) {
+      return { success: false, error: `هذه الطلبية أُرسلت مسبقاً لفانكس (كود: ${row.courier_tracking_code || row.courier_package_id})` };
     }
 
     const order = mapSupabaseRowToOrder(row);
@@ -177,8 +183,8 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       return { success: false, error: 'هذه الشركة لا تدعم الإرسال التلقائي' };
     }
 
-    const cityMapping = state.shippingCityMappings.find(
-      (m: any) => m.bunyanCityName === order.customerCity && m.is_active
+    const cityMapping = (state.shippingCityMappings as Array<{ bunyanCityName: string; is_active: boolean; provider_city_id: number }> | undefined)?.find(
+      (m) => m.bunyanCityName === order.customerCity && m.is_active
     );
     if (!cityMapping) {
       return {
@@ -197,11 +203,11 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       receiverName: order.customerName,
       receiverPhone: order.customerPhone,
       cityId: cityMapping.provider_city_id,
-      subCityId: order.vanexSubCityId,
+      subCityId: order.courierSubCityId,
       address: order.customerAddress || order.customerCity,
       price: priceForCourier,
-      description: order.items.map((i: any) => `${i.productName} × ${i.quantity}`).join('، '),
-      qty: order.items.reduce((sum: number, i: any) => sum + i.quantity, 0),
+      description: order.items.map((i: { productName: string; quantity: number }) => `${i.productName} × ${i.quantity}`).join('، '),
+      qty: order.items.reduce((sum: number, i: { quantity: number }) => sum + i.quantity, 0),
       notes: order.notes,
       commissionBy: (order.commission_by ?? 'customer') as 'customer' | 'market',
       paidBy: (order.commission_by ?? 'customer') as 'customer' | 'market',
@@ -223,8 +229,8 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
           .from('orders')
           .update({
             status: 'pending', // تبقى الحالة كما هي (Pending) بانتظار استلام المندوب
-            vanex_package_code: result.trackingCode,
-            vanex_package_id: vanexPackageId,
+            courier_tracking_code: result.trackingCode,
+            courier_package_id: vanexPackageId,
             courier_raw_status: result.rawStatus ?? 'pending',
           })
           .eq('id', orderId);
@@ -261,7 +267,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
     if (fetchError || !row) return { success: false, error: 'الطلبية غير موجودة' };
     
     // Check if it has any Vanex identifier
-    const vanexIdOrCode = row.vanex_package_id || row.vanex_package_code;
+    const vanexIdOrCode = row.courier_package_id || row.courier_tracking_code;
     if (!vanexIdOrCode) return { success: false, error: 'الطلبية ليست مرتبطة بفانكس (لا يوجد كود تتبع)' };
     
     const { data: courierData, error: courierError } = await supabase
@@ -285,8 +291,8 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
         await supabase
           .from('orders')
           .update({
-            vanex_package_id: null,
-            vanex_package_code: null,
+            courier_package_id: null,
+            courier_tracking_code: null,
             courier_raw_status: null
           })
           .eq('id', orderId);
@@ -329,7 +335,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       const cities = await adapter.getCities(token);
       set({ vanexCities: cities });
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'خطأ أثناء جلب المدن' };
     }
   },
@@ -341,7 +347,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       const result = await adapter.authenticate({ email, password: passwordHash });
 
       if (result.success && result.token) {
-        set((state: any) => ({
+        set((state: DeliverySlice) => ({
           superAdminCouriers: state.superAdminCouriers.map((c: SuperAdminCourier) =>
             c.provider === 'vanex'
               ? { ...c, apiCredentials: { email, passwordHash, token: result.token } }
@@ -351,7 +357,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
         return { success: true };
       }
       return { success: false, error: result.error || 'فشل المصادقة' };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'حدث خطأ في الاتصال' };
     }
   },
@@ -376,11 +382,11 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
       }
 
       const subCities = await adapter.getSubCities(cityId);
-      set((s: any) => ({
+      set((s: DeliverySlice) => ({
         vanexSubCities: { ...s.vanexSubCities, [cityId]: subCities },
       }));
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'خطأ أثناء جلب المناطق' };
     }
   },
@@ -389,7 +395,7 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
     const state = get();
     if (state.vanexSubCities[cityId]) return { success: true };
 
-    const courier = state.couriers.find((c: any) => c.id === courierId);
+    const courier = (state.couriers as Array<{ id: string; isApiConnected: boolean; apiCredentials?: { token?: string }; apiProvider?: string }> | undefined)?.find((c) => c.id === courierId);
     if (!courier?.isApiConnected || !courier.apiCredentials?.token) {
       return { success: false, error: 'الشركة غير مربوطة بـ API' };
     }
@@ -397,18 +403,18 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
     try {
       const { getDeliveryAdapter } = await import('../../delivery');
       if (!courier.apiProvider) return { success: false, error: 'المحول غير محدد' };
-      const adapter = getDeliveryAdapter(courier.apiProvider);
+      const adapter = getDeliveryAdapter(courier.apiProvider as 'vanex' | 'mock' | 'none');
 
       if (!('getSubCities' in adapter) || typeof adapter.getSubCities !== 'function') {
         return { success: false, error: 'المحول لا يدعم جلب المناطق' };
       }
 
       const subCities = await adapter.getSubCities(cityId);
-      set((s: any) => ({
+      set((s: DeliverySlice) => ({
         vanexSubCities: { ...s.vanexSubCities, [cityId]: subCities },
       }));
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'خطأ أثناء جلب المناطق' };
     }
   },
@@ -460,16 +466,17 @@ export const createDeliverySlice: StateCreator<any, [], [], DeliverySlice> = (se
 
       // We still update local state for immediate feedback, 
       // but React Query will handle the source of truth
-      set((st: any) => ({
+      set((st: DeliverySlice) => ({
         vanexSettlements: st.vanexSettlements.map((s: VanexSettlement) =>
           s.id === settlementId ? { ...s, status: 'applied' as const, appliedAt: new Date().toISOString() } : s
         ),
       }));
 
       return { success: true };
-    } catch (err: any) {
-      console.error('Error applying settlement:', err.message);
-      return { success: false, error: err.message };
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.error('Error applying settlement:', e.message);
+      return { success: false, error: e.message };
     }
   },
 });

@@ -38,8 +38,8 @@ export async function POST(req: Request) {
 
     if (error) throw error;
     return NextResponse.json({ success: true, data });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }
 
@@ -68,8 +68,8 @@ export async function PATCH(req: Request) {
 
     if (error) throw error;
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }
 
@@ -97,7 +97,7 @@ export async function DELETE(req: NextRequest) {
     const { error } = await supabase.from('couriers').delete().eq('id', id);
     if (error) throw error;
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }

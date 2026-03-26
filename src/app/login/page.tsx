@@ -8,12 +8,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/core/auth/store';
-import { useDataStore } from '@/core/db/store';
 import { Eye, EyeOff, LogIn, Loader2, UserPlus, ShieldCheck } from 'lucide-react';
 import { Logo } from '@/shared/components/ui/Logo';
-import { useToast } from '@/shared/components/ui/Toast';
+import type { UserPermissions } from '@/core/db/seed';
 
-const SUPER_ADMIN_EMAIL = 'super@bunyan.ly';
 // ⚠️ SuperAdmin check now goes through Supabase Auth like all other users
 
 import { createClient } from '@/core/db/supabase';
@@ -21,8 +19,6 @@ import { createClient } from '@/core/db/supabase';
 export default function LoginPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
-  const dataStore = useDataStore();
-  const { showToast } = useToast();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -48,14 +44,16 @@ export default function LoginPage() {
 
       // إضافة مهلة زمنية (Timeout) للطلب لضمان عدم التعليق على الجوال
       const loginPromise = supabase.auth.signInWithPassword({ email, password });
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('تأخر الرد من الخادم (Timeout) - تأكد من جودة الإنترنت')), 15000)
       );
 
       console.log('📡 [Login] Connecting to Supabase...');
-      const { data: authData, error: authError } = await Promise.race([loginPromise, timeoutPromise]) as any;
+      interface AuthData { user: { id: string } | null }
+      const authResult = await (Promise.race([loginPromise, timeoutPromise]) as Promise<{ data: AuthData; error: Error | null }>);
+      const { data: authData, error: authError } = authResult;
 
-      if (authError || !authData.user) {
+      if (authError || !authData?.user) {
         console.error('❌ [Login] Auth Error:', authError);
         setError('البريد الإلكتروني أو كلمة المرور غير صحيحة');
         setIsLoading(false);
@@ -63,12 +61,15 @@ export default function LoginPage() {
       }
 
       console.log('✅ [Login] Auth Success, fetching profile...');
-      
+
       // جلب البروفايل مع مهلة زمنية أيضاً
-      const { data: profile, error: profileError } = await (Promise.race([
+      interface ProfileData { id: string; tenant_id: string; full_name: string; phone: string | null; role: string; is_active: boolean; email: string; permissions: UserPermissions; tenants: { name: string; is_active: boolean } | null }
+      const profileResult = await (Promise.race([
         supabase.from('profiles').select('*, tenants(*)').eq('id', authData.user.id).single(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('تأخر جلب بيانات البروفايل')), 10000))
-      ]) as any);
+      ]) as Promise<{ data: ProfileData | null; error: Error | null }>);
+
+      const { data: profile, error: profileError } = profileResult;
 
       if (profileError || !profile) {
         console.error('❌ [Login] Profile Error:', profileError);
@@ -78,7 +79,7 @@ export default function LoginPage() {
         return;
       }
 
-      const tenant = (profile as any).tenants;
+      const tenant = profile.tenants;
 
       if (!profile.is_active) {
         await supabase.auth.signOut();
@@ -100,7 +101,7 @@ export default function LoginPage() {
         tenantId: profile.tenant_id,
         fullName: profile.full_name,
         phone: profile.phone ?? null,
-        role: profile.role as 'owner' | 'partner' | 'employee',
+        role: profile.role as 'owner' | 'partner' | 'employee' | 'super_admin',
         isActive: profile.is_active,
         email: profile.email,
         tenantName: tenant?.name,
@@ -109,15 +110,15 @@ export default function LoginPage() {
 
       localStorage.setItem('erp_user', JSON.stringify(authUser));
       setUser(authUser);
-      
+
       // التوجيه الفوري حسب الدور
       if (profile.role === 'super_admin') {
         router.push('/super-admin');
       } else {
         router.push(profile.role === 'owner' ? '/dashboard' : '/orders');
       }
-    } catch (err: any) {
-      setError(err?.message || 'حدث خطأ غير متوقع — تأكد من اتصالك وأعد المحاولة');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'حدث خطأ غير متوقع — تأكد من اتصالك وأعد المحاولة');
     } finally {
       setIsLoading(false);
     }
@@ -202,7 +203,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => { setPassword(e.target.value); setError(''); }}
-                  onKeyDown={e => e.key === 'Enter' && handleLogin(e as any)}
+                   onKeyDown={e => e.key === 'Enter' && handleLogin(e)}
                   placeholder="••••••••"
                   autoComplete="current-password"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-right

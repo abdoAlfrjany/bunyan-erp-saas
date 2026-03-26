@@ -5,7 +5,6 @@
 // مع دعم كامل لـ VanEx API ومتجر تطبيقات فاخر
 
 import { useState, useMemo, useEffect } from 'react';
-import Image from 'next/image';
 import { useUser } from '@/core/auth/hooks';
 import { 
   useAddCourier, useUpdateCourier, useToggleCourier, 
@@ -24,8 +23,8 @@ import { Logo } from '@/shared/components/ui/Logo';
 import {
   Plus, Trash2, Power, Edit2,
   Link2, Unlink, CheckCircle2, AlertCircle,
-  Loader2, Building2, Phone, Hash,
-  RefreshCw, Globe, TrendingUp, Package,
+  Loader2, Phone, Hash,
+  RefreshCw, Globe, Package,
   AlertTriangle, Truck, BarChart3, Eye,
   EyeOff, Zap, Wifi, WifiOff, ChevronDown,
   ChevronUp, DollarSign, ArrowUpRight, Info,
@@ -406,7 +405,7 @@ export default function CompaniesPage() {
     try {
       const adapter = getDeliveryAdapter('vanex');
       const apiCities = await adapter.getCities(company.apiCredentials.token);
-      const apiCityIds = apiCities.map((c: any) => c.id.toString());
+      const apiCityIds = apiCities.map((c: { id: string | number }) => c.id.toString());
 
       const { createClient } = await import('@/core/db/supabase');
       const supabase = createClient();
@@ -418,8 +417,8 @@ export default function CompaniesPage() {
       if (fetchErr) throw fetchErr;
 
       const idsToDisable = (mappings || [])
-        .filter((m: any) => m.provider_city_id && !apiCityIds.includes(m.provider_city_id) && m.is_active !== false)
-        .map((m: any) => m.id);
+        .filter((m: { provider_city_id: string; is_active: boolean }) => m.provider_city_id && !apiCityIds.includes(m.provider_city_id) && m.is_active !== false)
+        .map((m: { id: string }) => m.id);
 
       if (idsToDisable.length > 0) {
         await supabase
@@ -429,9 +428,9 @@ export default function CompaniesPage() {
       }
 
       showToast(`تم التحديث — ${apiCities.length} مدينة نشطة، ${idsToDisable.length} مدينة تم إيقافها`, 'success');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      showToast('خطأ أثناء التحديث', 'error');
+      showToast(err instanceof Error ? err.message : 'خطأ أثناء التحديث', 'error');
     } finally {
       setSyncingCompanyId(null);
     }
@@ -606,16 +605,14 @@ export default function CompaniesPage() {
 
   // Totals
   const totalStats = useMemo(() => ({
-    shipments: myCompanies.reduce((s: number, c: any) => s + (c.totalShipments || 0), 0),
-    delivered: myCompanies.reduce((s: number, c: any) => s + (c.totalDelivered || 0), 0),
-    returned: myCompanies.reduce((s: number, c: any) => s + (c.totalReturned || 0), 0),
-    pending: myCompanies.reduce((s: number, c: any) => s + (c.pendingAmount || 0), 0),
-    apiConnected: myCompanies.filter((c: any) => c.isApiConnected).length,
+    shipments: myCompanies.reduce((s: number, c: CourierCompany) => s + (c.totalShipments || 0), 0),
+    delivered: myCompanies.reduce((s: number, c: CourierCompany) => s + (c.totalDelivered || 0), 0),
+    returned: myCompanies.reduce((s: number, c: CourierCompany) => s + (c.totalReturned || 0), 0),
+    pending: myCompanies.reduce((s: number, c: CourierCompany) => s + (c.pendingAmount || 0), 0),
+    apiConnected: myCompanies.filter((c: CourierCompany) => c.isApiConnected).length,
   }), [myCompanies]);
 
-  const connectedCount = useMemo(() => myCompanies.filter((c: any) => c.isApiConnected).length, [myCompanies]);
-
-  const apiTargetCompany = myCompanies.find((c: any) => c.id === apiTargetId);
+  const apiTargetCompany = myCompanies.find((c: CourierCompany) => c.id === apiTargetId);
 
   const handleToggle = (id: string, current: boolean) => {
     toggleCourier(id).then(() => {

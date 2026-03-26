@@ -13,9 +13,9 @@ import {
   Wallet, ArrowUpCircle, ArrowDownCircle, Landmark, Truck,
   Plus, ArrowRightLeft, Download, BanknoteIcon, ArrowLeftRight
 } from 'lucide-react';
-import type { TreasuryTransaction, TreasuryAccount } from '@/core/types';
+import type { TreasuryTransaction } from '@/core/types';
 
-const TX_LABELS: Record<string, { label: string; icon: any; colorClasses: string }> = {
+const TX_LABELS: Record<string, { label: string; icon: React.ElementType; colorClasses: string }> = {
   income:             { label: 'إيراد / ضخ مال',  icon: ArrowUpCircle,   colorClasses: 'bg-emerald-50 text-emerald-600' },
   sale:               { label: 'إيراد مبيعات',    icon: ArrowUpCircle,   colorClasses: 'bg-blue-50 text-blue-600' },
   courier_settlement: { label: 'تسوية توصيل',     icon: ArrowUpCircle,   colorClasses: 'bg-bunyan-50 text-bunyan-600' },
@@ -30,17 +30,15 @@ export default function TreasuryPage() {
   const queryClient = useQueryClient();
 
   const { data: treasuryData, isLoading } = useTreasuryQuery(tid);
-  const treasury = treasuryData?.accounts || [];
-  const transactions = treasuryData?.transactions || [];
 
   const getForTenant = useGetForTenant();
   const addTransaction = useAddTransaction();
   const { showToast } = useToast();
 
-  const myAccounts = useMemo(() => getForTenant(treasury, tid), [treasury, tid, getForTenant]);
+  const myAccounts = useMemo(() => getForTenant(treasuryData?.accounts || [], tid), [treasuryData?.accounts, tid, getForTenant]);
   const myTx = useMemo(
-    () => getForTenant(transactions, tid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [transactions, tid, getForTenant]
+    () => getForTenant(treasuryData?.transactions || [], tid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [treasuryData?.transactions, tid, getForTenant]
   );
 
   const cashAccount     = myAccounts.find(a => a.accountType === 'cash_in_hand');
@@ -121,8 +119,8 @@ export default function TreasuryPage() {
         queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
         showToast('تم التحويل بين الحسابات بنجاح ✅', 'success');
         setSlideOpen(false); setAmount(''); setDescription(''); setIsTransfer(false);
-      } catch (err: any) {
-        showToast(err.message || 'حدث خطأ أثناء التحويل', 'error');
+      } catch (err: unknown) {
+        showToast((err as Error).message || 'حدث خطأ أثناء التحويل', 'error');
       }
       return;
     }
@@ -143,8 +141,8 @@ export default function TreasuryPage() {
       queryClient.invalidateQueries({ queryKey: ['treasury', tid] });
       showToast('تمت إضافة الحركة المالية بنجاح ✅', 'success');
       setSlideOpen(false); setAmount(''); setDescription(''); setTxType('income');
-    } catch (err: any) {
-      showToast(err.message || 'حدث خطأ أثناء إضافة الحركة', 'error');
+    } catch (err: unknown) {
+      showToast((err as Error).message || 'حدث خطأ أثناء إضافة الحركة', 'error');
     }
   };
 
@@ -246,7 +244,7 @@ export default function TreasuryPage() {
               className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none w-36" />
             <div className="flex bg-gray-100 p-0.5 rounded-lg gap-0.5">
               {[['all', 'الكل'], ['income', 'إيرادات'], ['expense', 'مصروفات']].map(([v, l]) => (
-                <button key={v} onClick={() => setTypeFilter(v as any)}
+                <button key={v} onClick={() => setTypeFilter(v as 'all' | TreasuryTransaction['transactionType'])}
                   className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
                     typeFilter === v ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
                   }`}>
@@ -323,7 +321,7 @@ export default function TreasuryPage() {
                   { id: 'expense', label: 'مصروفات', icon: ArrowDownCircle, color: 'text-red-600' },
                   { id: 'partner_withdrawal', label: 'سحب شريك', icon: Wallet, color: 'text-amber-600' },
                 ].map(t => (
-                  <button key={t.id} onClick={() => setTxType(t.id as any)}
+                  <button key={t.id} onClick={() => setTxType(t.id as TreasuryTransaction['transactionType'])}
                     className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${
                       txType === t.id ? 'border-bunyan-500 bg-bunyan-50/50' : 'border-gray-100 hover:border-gray-200'
                     }`}>
@@ -337,7 +335,7 @@ export default function TreasuryPage() {
             <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 flex items-center gap-3">
               <ArrowLeftRight className="text-blue-600 shrink-0" size={20} />
               <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-                سيتم خصم المبلغ من الحساب "المصدر" وإضافته للحساب "المستلم" بشكل آلي.
+                سيتم خصم المبلغ من الحساب &quot;المصدر&quot; وإضافته للحساب &quot;المستلم&quot; بشكل آلي.
               </p>
             </div>
           )}

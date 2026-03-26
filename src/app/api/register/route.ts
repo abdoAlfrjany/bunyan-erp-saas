@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       balance: 0,
     });
     return NextResponse.json({ success: true, userId, tenantId, ownerPermissions });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

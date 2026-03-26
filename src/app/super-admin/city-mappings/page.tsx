@@ -17,14 +17,6 @@ import { Logo } from '@/shared/components/ui/Logo';
 import { cn } from '@/shared/utils/cn';
 
 // ═══ Constants ═══
-const BUNYAN_CITIES = [
-  'طرابلس', 'بنغازي', 'مصراتة', 'الزاوية', 'سرت', 'ترهونة',
-  'غريان', 'الزنتان', 'زليتن', 'الخمس', 'صبراتة', 'البيضاء',
-  'درنة', 'طبرق', 'أجدابيا', 'تاجوراء', 'جنزور', 'بني وليد',
-  'سبها', 'مرزق', 'القطرون', 'أوباري', 'الكفرة', 'يفرن',
-  'الجفرة', 'هون', 'ودان', 'الرجبان', 'بني غازي',
-];
-
 const MOCK_BUNYAN_TREE = [
   { city: 'طرابلس', regions: ['السياحية', 'حي الأندلس', 'قصر بن غشير', 'عين زارة', 'تاجوراء', 'سوق الجمعة', 'النوفليين', 'أبو سليم'] },
   { city: 'بنغازي', regions: ['الكيش', 'الماجوري', 'الفويهات', 'بوعطني', 'سيدي حسين', 'البركة', 'طابلينو'] },
@@ -153,7 +145,7 @@ function NestedRegionsTable({
 }: {
   providerCityId: number; providerCityName: string; provider: string; cityMappingId: string;
 }) {
-  const { fetchProviderRegions, providerRegionsData, shippingRegionMappings, addRegionMapping, updateRegionMapping, shippingCityMappings, bunyanRegions } = useDataStore();
+  const { fetchProviderRegions, providerRegionsData, shippingRegionMappings, addRegionMapping, shippingCityMappings, bunyanRegions } = useDataStore();
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(false);
@@ -173,7 +165,8 @@ function NestedRegionsTable({
     }
     const res = await useDataStore.getState().addBunyanRegion(regionName, Number(bunyanCityId));
     if (res.success && res.data) {
-      setLocalMap(prev => ({ ...prev, [providerRegionId]: res.data.id }));
+      const newId = res.data.id;
+      setLocalMap(prev => ({ ...prev, [providerRegionId]: newId }));
       showToast('تمت إضافة المنطقة بنجاح', 'success');
     } else {
       showToast(res.error || 'فشل إضافة المنطقة', 'error');
@@ -197,7 +190,7 @@ function NestedRegionsTable({
     };
     fetchRegions();
     return () => { isMounted = false; };
-  }, [providerCityId, providerRegionsData, fetchProviderRegions]);
+  }, [providerCityId, providerRegionsData, fetchProviderRegions, showToast]);
 
   useEffect(() => {
     const currentMappings = shippingRegionMappings.filter(r => String(r.city_mapping_id) === String(cityMappingId));
@@ -222,7 +215,15 @@ function NestedRegionsTable({
 
     try {
       const existing = shippingRegionMappings.find(r => r.city_mapping_id === cityMappingId && r.provider_region_id === regionId);
-      const mappingData: any = {
+      const mappingData: {
+        id?: string;
+        city_mapping_id: string;
+        provider: string;
+        provider_city_id: number;
+        bunyan_region_id: number;
+        provider_region_id: number;
+        is_active: boolean;
+      } = {
         city_mapping_id: cityMappingId,
         provider: provider,
         provider_city_id: providerCityId,
@@ -231,7 +232,7 @@ function NestedRegionsTable({
         is_active: true,
       };
       if (existing) mappingData.id = existing.id;
-      const res = await addRegionMapping(mappingData as any);
+      const res = await addRegionMapping(mappingData as unknown as Parameters<typeof addRegionMapping>[0]);
 
       if (res && res.success === false) throw new Error(res.error);
       if (!batch) showToast(`✅ تم ربط ${regionName} بنجاح`, 'success');
@@ -375,8 +376,8 @@ function NestedRegionsTable({
 // ═══ Main Page ═══
 export default function CityMappingsPage() {
   const {
-    shippingCityMappings, addCityMapping, updateCityMapping,
-    fetchProviderCities, providerCitiesData, providerRegionsData,
+    shippingCityMappings, addCityMapping,
+    providerCitiesData, providerRegionsData,
     shippingRegionMappings, superAdminCouriers, addBunyanCity,
     bunyanCities, bunyanRegions
   } = useDataStore();
@@ -451,12 +452,14 @@ export default function CityMappingsPage() {
           throw new Error('الاستجابة نجحت ولكن مصفوفة المدن فارغة');
         }
 
-        const processedCities = cities.map((c: any) => {
+        const processedCities = (cities as unknown as { id: number; name: string; nameEn: string; active: boolean; code?: string; regionId?: number; }[]).map((c) => {
           const hasRegions = ['طرابلس', 'بنغازي', 'مصراتة', 'سرت', 'الزاوية', 'الخمس', 'Tripoli', 'Benghazi', 'Misrata'].some(name => 
              c.name?.includes(name) || c.nameEn?.includes(name)
           );
           return {
             ...c,
+            code: c.code || String(c.id),
+            regionId: c.regionId || 0,
             isActive: c.active, 
             hasSubRegions: hasRegions,
           };
@@ -472,8 +475,8 @@ export default function CityMappingsPage() {
       } else {
         showToast('طريقة الجلب غير مدعومة لهذا المزود', 'error');
       }
-    } catch (err: any) {
-      showToast(err.message || 'فشل الاتصال بالمزود', 'error');
+    } catch (err: unknown) {
+      showToast((err as Error).message || 'فشل الاتصال بالمزود', 'error');
     } finally {
       setIsFetching(false);
     }
@@ -482,7 +485,8 @@ export default function CityMappingsPage() {
   const handleAddCustomCity = async (cityName: string, providerCityId: number) => {
     const res = await addBunyanCity(cityName);
     if (res.success && res.data) {
-      setGridMap(prev => ({ ...prev, [providerCityId]: `city_${res.data.id}` }));
+      const newId = res.data.id;
+      setGridMap(prev => ({ ...prev, [providerCityId]: `city_${newId}` }));
       showToast('تمت إضافة المدينة بنجاح', 'success');
     } else {
       showToast(res.error || 'فشل إضافة المدينة', 'error');
@@ -504,7 +508,16 @@ export default function CityMappingsPage() {
       const isRegion = selectedBunyan.startsWith('region_');
       const realId = Number(selectedBunyan.replace('city_', '').replace('region_', ''));
 
-      const mappingData: any = {
+      const mappingData: {
+        id?: string;
+        provider: string;
+        bunyan_city_id: number | null;
+        bunyan_region_id: number | null;
+        parent_mapping_id: string | null;
+        provider_city_id: number;
+        provider_region_id: number | null;
+        is_active: boolean;
+      } = {
         provider: selectedProvider,
         bunyan_city_id: isRegion ? null : realId,
         bunyan_region_id: isRegion ? realId : null,
@@ -515,7 +528,7 @@ export default function CityMappingsPage() {
       };
       if (existingMapping) mappingData.id = existingMapping.id;
 
-      const res = await addCityMapping(mappingData as any);
+      const res = await addCityMapping(mappingData as unknown as import('@/core/types').ShippingCityMapping);
       if (!res.success) { showToast(res.error || 'خطأ في حفظ المدينة', 'error'); return; }
       showToast(`تم مطابقة ${providerCity.name} بنجاح`, 'success');
     } finally {
@@ -541,7 +554,16 @@ export default function CityMappingsPage() {
       const cMatch = bunyanCities.find(c => c.name_ar === normalizedName);
       if (cMatch) {
          setGridMap(prev => ({...prev, [providerCity.id]: `city_${cMatch.id}`}));
-         const mappingData: any = {
+         const mappingData: {
+            id?: string;
+            provider: string;
+            bunyan_city_id: number;
+            bunyan_region_id: number | null;
+            parent_mapping_id: string | null;
+            provider_city_id: number;
+            provider_region_id: number | null;
+            is_active: boolean;
+         } = {
             provider: selectedProvider,
             bunyan_city_id: cMatch.id,
             bunyan_region_id: null,
@@ -550,8 +572,8 @@ export default function CityMappingsPage() {
             provider_region_id: null,
             is_active: true
          };
-         if (existingMapping) mappingData.id = existingMapping.id;
-         await addCityMapping(mappingData as any);
+          if (existingMapping) mappingData.id = existingMapping.id;
+          await addCityMapping(mappingData as unknown as import('@/core/types').ShippingCityMapping);
          matchCount++;
          continue;
       }
@@ -560,7 +582,16 @@ export default function CityMappingsPage() {
       const rMatch = bunyanRegions.find(r => r.name_ar === normalizedName);
       if (rMatch) {
          setGridMap(prev => ({...prev, [providerCity.id]: `region_${rMatch.id}`}));
-         const mappingData: any = {
+         const mappingData: {
+            id?: string;
+            provider: string;
+            bunyan_city_id: number | null;
+            bunyan_region_id: number;
+            parent_mapping_id: string | null;
+            provider_city_id: number;
+            provider_region_id: number | null;
+            is_active: boolean;
+         } = {
             provider: selectedProvider,
             bunyan_city_id: null,
             bunyan_region_id: rMatch.id,
@@ -570,7 +601,7 @@ export default function CityMappingsPage() {
             is_active: true
          };
          if (existingMapping) mappingData.id = existingMapping.id;
-         await addCityMapping(mappingData as any);
+         await addCityMapping(mappingData as unknown as import('@/core/types').ShippingCityMapping);
          matchCount++;
       }
     }
@@ -708,7 +739,7 @@ export default function CityMappingsPage() {
               </div>
               <h3 className="text-lg font-black text-gray-800 mb-2">لم يتم جلب البيانات بعد</h3>
               <p className="text-sm text-gray-500 mb-5 max-w-sm mx-auto">
-                اضغط زر "تحديث البيانات" في أعلى الصفحة لجلب قائمة المدن من مزود التوصيل.
+                اضغط زر &quot;تحديث البيانات&quot; في أعلى الصفحة لجلب قائمة المدن من مزود التوصيل.
               </p>
               <button
                 onClick={handleFetchData}

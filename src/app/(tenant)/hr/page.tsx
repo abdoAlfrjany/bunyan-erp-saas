@@ -13,9 +13,9 @@ import { EmptyState } from '@/shared/components/ui/EmptyState';
 import { useToast } from '@/shared/components/ui/Toast';
 import {
   Plus, Trash2, Edit2, CalendarDays, AlertCircle, Coins,
-  HeartHandshake, Users, Search, Key, Download, Activity, FileDown, MoreVertical
+  HeartHandshake, Users, Search, Key, Activity, FileDown, MoreVertical
 } from 'lucide-react';
-import type { Employee, UserPermissions } from '@/core/db/seed';
+import type { Employee, UserPermissions } from '@/core/types';
 
 // Toggle Switch — بديل Checkbox في الصلاحيات
 function ToggleSwitch({ checked, onChange, label }: {
@@ -154,7 +154,7 @@ export default function HRPage() {
       if (form.hasSystemAccess) {
         const passToUse = form.password || '123456';
         const finalEmail = form.email || `${form.phone || Date.now()}@bunyan.ly`;
-        let perms: UserPermissions = {
+        const perms: UserPermissions = {
           inventory: { view: false, add: false, edit: false, delete: false, viewCostPrice: false },
           orders: { view: false, add: false, edit: false, delete: false, changeStatus: false, viewAll: false },
           delivery: { view: false, addShipment: false, manageCompanies: false, viewSettlements: false, addSettlement: false },
@@ -454,7 +454,7 @@ export default function HRPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1.5">نوع الدوام</label>
-              <select value={form.employmentType} onChange={e => setForm({...form, employmentType: e.target.value as any})}
+              <select value={form.employmentType} onChange={e => setForm({...form, employmentType: e.target.value as Employee['employmentType']})}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
                   focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 bg-white">
                 <option value="full_time">دوام كامل</option>
@@ -483,7 +483,7 @@ export default function HRPage() {
 
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5">حالة الموظف</label>
-            <select value={form.status} onChange={e => setForm({...form, status: e.target.value as any})}
+            <select value={form.status} onChange={e => setForm({...form, status: e.target.value as Employee['status']})}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm
                 focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 bg-white">
               <option value="active">نشط</option>

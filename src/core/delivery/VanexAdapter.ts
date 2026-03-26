@@ -35,6 +35,10 @@ export const VANEX_TO_BUNYAN_STATUS: Record<string, Order['status']> = {
   store_return:        'return_confirmed',// شحنة مستردة وتم استلامها فعلياً (تُسترد للمخزون)
   store_canceled:      'cancelled',       // مُلغاة
   cancelled:           'cancelled',       // (Legacy fallback)
+  canceled:            'cancelled',       // (Common single L spelling)
+  canceled_by_admin:   'cancelled',
+  canceled_by_source:  'cancelled',
+  refused:             'pending_return',  // رفض استلام (تتحول لراجعة)
 };
 
 export class VanexAdapter implements IDeliveryProvider {
@@ -104,7 +108,7 @@ export class VanexAdapter implements IDeliveryProvider {
   }
 
   async authenticate(credentials: { email: string; password: string }) {
-    const result = await this.request<any>(
+    const result = await this.request<{ user: { office_cities: number[] }; access_token: string }>(
       '/authenticate',
       {
         method: 'POST',
@@ -114,7 +118,7 @@ export class VanexAdapter implements IDeliveryProvider {
     if (result.success && result.data) {
       // Capture office_cities permissions
       if (result.data.user && Array.isArray(result.data.user.office_cities)) {
-        this.officeCities = result.data.user.office_cities.map((id: any) => Number(id));
+        this.officeCities = result.data.user.office_cities.map((id: string | number) => Number(id));
       } else {
         this.officeCities = null;
       }
@@ -130,7 +134,7 @@ export class VanexAdapter implements IDeliveryProvider {
   }
 
   async getCities(token?: string): Promise<VanexCity[]> {
-    const result = await this.request<any>('/city/all', {}, token);
+    const result = await this.request<unknown>('/city/all', {}, token);
     
     if (!result.success) {
       // 3. Throw explicit error instead of returning []
@@ -145,7 +149,7 @@ export class VanexAdapter implements IDeliveryProvider {
     }
 
     // 2. Disable filtering by active for now to ensure we see data
-    return rawData.map((c: any) => ({
+    return rawData.map((c: { id: number; name: string; name_en: string; code: string; region_id: number; active: number }) => ({
       id: c.id,
       name: c.name,
       nameEn: c.name_en,
@@ -160,21 +164,23 @@ export class VanexAdapter implements IDeliveryProvider {
 
     
     // جلب كل المدن للحصول على المناطق المدمجة بداخلها
-    const result = await this.request<any>('/city/all', { method: 'GET' }, token);
+    const result = await this.request<unknown>('/city/all', { method: 'GET' }, token);
     
     if (!result.success) {
       throw new Error(result.error || "فشل جلب المناطق من مسار المدن");
     }
 
     // استخراج المصفوفة بأمان
-    const rawData = Array.isArray(result.data) ? result.data : (result.data?.data || []);
+    const rawData = Array.isArray(result.data) 
+      ? result.data 
+      : ((result.data as { data?: unknown[] })?.data || []);
     
     // البحث عن المدينة المطلوبة
-    const targetCity = rawData.find((c: any) => Number(c.id) === Number(cityId));
+    const targetCity = (rawData as { id: number | string; locations?: { id: number; name: string; name_ar?: string; parent_city?: number }[] }[]).find((c) => Number(c.id) === Number(cityId));
     
     // سحب المناطق من مصفوفة locations
     const subs = targetCity?.locations || [];
-    return subs.map((sub: any) => ({
+    return subs.map((sub: { id: number; name: string; name_ar?: string; parent_city?: number }) => ({
       id: Number(sub.id),
       name: sub.name || sub.name_ar || "بدون اسم",
       cityId: Number(sub.parent_city || cityId)
@@ -254,7 +260,7 @@ export class VanexAdapter implements IDeliveryProvider {
   }
 
   async getShipmentStatus(trackingCode: string, token?: string): Promise<IShipmentStatusResult> {
-    const result = await this.request<any>(
+    const result = await this.request<{ status_object: { status_value: string }; updated_at: string }>(
       `/customer/package/${trackingCode}`,
       {},
       token
@@ -272,7 +278,7 @@ export class VanexAdapter implements IDeliveryProvider {
 
   async cancelShipment(id: number | string, token: string) {
     console.log(`[VanexAdapter] Attempting to DELETE package ID/Code: ${id}`);
-    let result = await this.request<any>(
+    let result = await this.request<unknown>(
       `/customer/package/${id}`,
       { method: 'DELETE' },
       token
@@ -299,7 +305,7 @@ export class VanexAdapter implements IDeliveryProvider {
     return { success: result.success, error: result.error };
   }
 
-  async getSettlements(token: string, status?: string): Promise<import('../types').VanexSettlement[]> {
+  async getSettlements(token: string, status?: string, commissionRate?: number): Promise<import('../types').VanexSettlement[]> {
     const query = status ? `?status=${status}` : '';
     const result = await this.request<{
       data: Array<{
@@ -331,12 +337,12 @@ export class VanexAdapter implements IDeliveryProvider {
           'bank_transfer';
 
         const bankCommission = paymentMethod === 'online'
-          ? Math.round((s.total_amount ?? 0) * 0.02)
+          ? Math.round((s.total_amount ?? 0) * (commissionRate ?? 0.02))
           : 0;
 
         const netAmount = Math.round((s.total_amount ?? 0) - bankCommission);
 
-        const rawStatus = (s as any).status?.toLowerCase() ?? 'pending';
+        const rawStatus = (s as { status?: string }).status?.toLowerCase() ?? 'pending';
         const status: VanexSettlement['status'] =
           rawStatus === 'paid' ? 'applied' :
           rawStatus === 'approved' ? 'approved' :
@@ -365,7 +371,7 @@ export class VanexAdapter implements IDeliveryProvider {
     return [];
   }
 
-  async getSettlementDetails(id: number, token: string): Promise<import('../types').VanexSettlement | null> {
+  async getSettlementDetails(id: number, token: string, commissionRate?: number): Promise<import('../types').VanexSettlement | null> {
     const result = await this.request<{
       id: number;
       settlement_number: string;
@@ -388,12 +394,12 @@ export class VanexAdapter implements IDeliveryProvider {
           sum + Math.round(p.shipping_cost ?? 0), 0);
 
       const bankCommission = paymentMethod === 'online'
-        ? Math.round(s.total_amount * 0.02)
+        ? Math.round(s.total_amount * (commissionRate ?? 0.02))
         : 0;
 
       const netAmount = Math.round(s.total_amount - totalDeliveryFees - bankCommission);
 
-      const rawStatus = (s as any).status?.toLowerCase() ?? 'pending';
+      const rawStatus = (s as { status?: string }).status?.toLowerCase() ?? 'pending';
       const status: VanexSettlement['status'] =
         rawStatus === 'paid' ? 'applied' :
         rawStatus === 'approved' ? 'approved' :

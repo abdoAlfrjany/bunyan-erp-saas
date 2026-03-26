@@ -1,225 +1,179 @@
 // src/shared/hooks/useTenantData.ts
-// الوظيفة: hook موحد لجلب بيانات المتجر الحالي بـ Zustand selectors محسّنة
-// بدلاً من: const { products, orders } = useDataStore() ← يُعيد render عند أي تغيير
-// استخدم: const { products, orders } = useTenantData() ← يُعيد render فقط عند تغيير بيانات المتجر
+/**
+ * 🤖 [Auto-Hybrid] Dynamic Data Hooks Factory
+ * This file translates between Zustand (Global State) and React Query (Cloud Data).
+ * Transition Phase: Moving core entities (Products, Orders, Treasury) to React Query.
+ */
 
-'use client';
-
-import { useCallback } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { useAuthStore } from '@/core/auth/store';
+import { useMemo } from 'react';
 import { useDataStore } from '@/core/db/store';
+import { useAuthStore } from '@/core/auth/store';
 
-// مرجع ثابت للمصفوفات الفارغة لمنع الـ re-render اللانهائي
+// 📡 React Query Standard Hooks
+import { useProductsQuery } from '@/core/db/hooks/useProducts';
+import { useOrdersQuery } from '@/core/db/hooks/useOrders';
+import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
+import { useCouriersQuery } from '@/core/db/hooks/useCouriers';
+import { useDebtsQuery } from '@/core/db/hooks/useDebts';
+import { usePartnersQuery } from '@/core/db/hooks/usePartners';
+import { useEmployeesQuery } from '@/core/db/hooks/useEmployees';
+import { useCustomersQuery } from '@/core/db/hooks/useCustomers';
+
+// 🛡️ Helper: Stable Empty Array for dependencies
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const STABLE_EMPTY_ARRAY: any[] = [];
 
-/**
- * جلب tenantId من Auth Store
- */
-export const useTenantId = (): string => {
-  return useAuthStore(useCallback(s => s.user?.tenantId ?? '', []));
+// 📍 Tenant Context Selector
+export const useTenantId = () => {
+  const user = useAuthStore((s) => s.user);
+  return user?.tenantId || '';
 };
 
-/**
- * جلب المنتجات النشطة للمتجر الحالي
- */
+// 📦 --- PRODUCTS ---
 export const useTenantProducts = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.products.filter(p => p.tenantId === tid && p.isActive))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useProductsQuery(tid);
+  return useMemo(() => data.filter(p => p.isActive), [data]);
 };
 
-/**
- * جلب كل المنتجات (بما في ذلك المحذوفة) للمتجر الحالي
- */
 export const useTenantAllProducts = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.products.filter(p => p.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useProductsQuery(tid);
+  return data;
 };
 
-/**
- * جلب الطلبيات للمتجر الحالي
- */
+// 🧾 --- ORDERS ---
 export const useTenantOrders = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.orders.filter(o => o.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useOrdersQuery(tid);
+  return data;
 };
 
-/**
- * جلب حسابات الخزينة للمتجر الحالي
- */
+// 💰 --- TREASURY & ACCOUNTS ---
 export const useTenantTreasury = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.treasury.filter(a => a.tenantId === tid))
-  );
+  const { data } = useTreasuryQuery(tid);
+  return data?.accounts || STABLE_EMPTY_ARRAY;
 };
 
-/**
- * جلب رصيد الخزينة النقدية (cash_in_hand)
- */
 export const useCashBalance = (): number => {
-  const tid = useTenantId();
-  return useDataStore(
-    useCallback(
-      s => s.treasury.find(a => a.tenantId === tid && a.accountType === 'cash_in_hand')?.balance ?? 0,
-      [tid]
-    )
+  const accounts = useTenantTreasury();
+  return useMemo(() => 
+    accounts.filter(a => a.accountType === 'cash_in_hand').reduce((s, a) => s + a.balance, 0),
+    [accounts]
   );
 };
 
-/**
- * جلب حساب الخزينة النقدية
- */
 export const useCashAccount = () => {
-  const tid = useTenantId();
-  return useDataStore(
-    useCallback(
-      s => s.treasury.find(a => a.tenantId === tid && a.accountType === 'cash_in_hand'),
-      [tid]
-    )
-  );
+  const accounts = useTenantTreasury();
+  return useMemo(() => accounts.find(a => a.accountType === 'cash_in_hand'), [accounts]);
 };
 
-/**
- * جلب رصيد أموال قيد التحصيل (with_courier)
- */
 export const useCourierPendingBalance = (): number => {
-  const tid = useTenantId();
-  return useDataStore(
-    useCallback(
-      s => s.treasury.reduce(
-        (sum, a) => a.tenantId === tid && a.accountType === 'with_courier'
-          ? sum + a.balance
-          : sum,
-        0
-      ),
-      [tid]
-    )
+  const accounts = useTenantTreasury();
+  return useMemo(() => 
+    accounts.filter(a => a.accountType === 'with_courier').reduce((s, a) => s + a.balance, 0),
+    [accounts]
   );
 };
 
-/**
- * جلب الحركات المالية للمتجر الحالي
- */
+// 📊 --- TRANSACTIONS ---
 export const useTenantTransactions = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.transactions.filter(t => t.tenantId === tid))
-  );
+  const { data } = useTreasuryQuery(tid);
+  return data?.transactions || STABLE_EMPTY_ARRAY;
 };
 
-/**
- * جلب الشركاء للمتجر الحالي
- */
+// 🤝 --- PARTNERS ---
 export const useTenantPartners = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.partners.filter(p => p.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = usePartnersQuery(tid);
+  return useMemo(() => data.filter(p => p.isActive), [data]);
 };
 
-/**
- * جلب الموظفين للمتجر الحالي
- */
+// 👥 --- EMPLOYEES ---
 export const useTenantEmployees = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.employees.filter(e => e.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useEmployeesQuery(tid);
+  return useMemo(() => data.filter(e => e.isActive), [data]);
 };
 
-/**
- * جلب الديون النشطة للمتجر الحالي
- */
+// 💸 --- DEBTS ---
 export const useTenantDebts = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.debts.filter(d => d.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useDebtsQuery(tid);
+  return data;
 };
 
-/**
- * جلب شركات التوصيل للمتجر الحالي
- */
+// 🚚 --- COURIERS ---
 export const useTenantCouriers = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.couriers.filter(c => c.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useCouriersQuery(tid);
+  return useMemo(() => data.filter(c => c.isActive), [data]);
 };
 
-/**
- * جلب الزبائن للمتجر الحالي
- */
+// 👤 --- CUSTOMERS ---
 export const useTenantCustomers = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.customers.filter(c => c.tenantId === tid))
-  );
+  const { data = STABLE_EMPTY_ARRAY } = useCustomersQuery(tid);
+  return data;
 };
 
-/**
- * جلب الإشعارات للمتجر الحالي
- */
+// 🔔 --- NOTIFICATIONS --- (Still in Zustand as they are local-first)
 export const useTenantNotifications = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useShallow(s => s.notifications.filter(n => n.tenantId === tid))
-  );
+  const notifications = useDataStore((s) => s.notifications);
+  return useMemo(() => notifications.filter(n => n.tenantId === tid), [notifications, tid]);
 };
 
-/**
- * جلب الفئات المخصصة للمتجر الحالي
- */
+// 🏷️ --- CATEGORIES & UNITS --- (Custom types)
 export const useTenantCategories = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useCallback(s => s.customCategories[tid] || STABLE_EMPTY_ARRAY, [tid])
-  );
+  const customCategories = useDataStore((s) => s.customCategories);
+  return customCategories[tid] || STABLE_EMPTY_ARRAY;
 };
 
-/**
- * جلب وحدات القياس المخصصة للمتجر الحالي
- */
 export const useTenantUnits = () => {
   const tid = useTenantId();
-  return useDataStore(
-    useCallback(s => s.customUnits[tid] || STABLE_EMPTY_ARRAY, [tid])
-  );
+  const customUnits = useDataStore((s) => s.customUnits);
+  return customUnits[tid] || STABLE_EMPTY_ARRAY;
 };
 
-/**
- * Hook شامل — يُستخدم في الصفحات التي تحتاج بيانات متعددة
- * ⚠️ استخدمه فقط إذا تحتاج أغلب البيانات — وإلا استخدم الـ hooks المنفردة
- */
+// 🔗 --- MASTER AGGREGATOR ---
+/** Returns all tenant data in a single stable object */
 export const useTenantData = () => {
-  const tid = useTenantId();
   const products = useTenantProducts();
   const orders = useTenantOrders();
   const treasury = useTenantTreasury();
+  const transactions = useTenantTransactions();
   const partners = useTenantPartners();
   const employees = useTenantEmployees();
   const debts = useTenantDebts();
   const couriers = useTenantCouriers();
   const customers = useTenantCustomers();
-  const cashBalance = useCashBalance();
+  const notifications = useTenantNotifications();
 
-  return {
-    tenantId: tid,
+  return useMemo(() => ({
     products,
     orders,
     treasury,
+    transactions,
     partners,
     employees,
     debts,
     couriers,
     customers,
-    cashBalance,
-  };
+    notifications
+  }), [
+    products,
+    orders,
+    treasury,
+    transactions,
+    partners,
+    employees,
+    debts,
+    couriers,
+    customers,
+    notifications
+  ]);
 };

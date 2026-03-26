@@ -10,7 +10,7 @@ import { useDataStore } from '@/core/db/store';
 import { useToast } from '@/shared/components/ui/Toast';
 import { EmptyState } from '@/shared/components/ui/EmptyState';
 import {
-  Store, CheckCircle2, Search, LogIn, PauseCircle,
+  Store, Search, LogIn, PauseCircle,
   MoreVertical, Pencil, MapPin, Calendar
 } from 'lucide-react';
 

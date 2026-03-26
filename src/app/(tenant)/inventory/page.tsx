@@ -11,21 +11,20 @@ import { useProductsQuery } from '@/core/db/hooks/useProducts';
 import { useOrdersQuery } from '@/core/db/hooks/useOrders';
 import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
 import { useQueryClient } from '@tanstack/react-query';
-import { useGetForTenant, useAddProduct, useUpdateProduct, useDeleteProduct, useAddCustomUnit } from '@/core/db/hooks';
+import { useGetForTenant, useUpdateProduct, useDeleteProduct } from '@/core/db/hooks';
+import type { ProductVariant } from '@/core/types';
 import { formatCurrency, formatNumber } from '@/shared/utils/format';
-import { STOCK_STATUS, getStockStatus, getStatusBadgeClasses } from '@/shared/utils/statusColors';
+import { getStockStatus, getStatusBadgeClasses } from '@/shared/utils/statusColors';
 import { SlideOver } from '@/shared/components/ui/SlideOver';
 import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
 import { useToast } from '@/shared/components/ui/Toast';
-import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, CheckCircle2, BarChart2, TrendingUp, DollarSign, Eye } from 'lucide-react';
+import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, BarChart2, TrendingUp, DollarSign, Eye } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { AddProductSlideOver } from '@/shared/components/ui';
 
 type Filter = 'all' | 'available' | 'low' | 'out';
-const SIZES_CLOTHING = ['S', 'M', 'L', 'XL', 'XXL'];
-const SIZES_SHOES = ['38', '39', '40', '41', '42', '43', '44', '45'];
 
-const SmartVariantBadges = ({ variants }: { variants: any[] | undefined }) => {
+const SmartVariantBadges = ({ variants }: { variants: ProductVariant[] | undefined }) => {
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   if (!variants || variants.length === 0) return null;
   
@@ -45,10 +44,10 @@ const SmartVariantBadges = ({ variants }: { variants: any[] | undefined }) => {
 
   if (directKey) {
     variants.forEach(v => {
-      const val = String(v[directKey] || '');
+      const val = String((v as unknown as Record<string, string>)[directKey] || '');
       if (val) grouped[val] = (grouped[val] || 0) + v.quantity;
     });
-  } else {
+  } else if (variants[0].attributes) {
     const attrKey = Object.keys(variants[0].attributes)[0];
     variants.forEach(v => {
       const val = String(v.attributes?.[attrKey] || '');
@@ -282,14 +281,11 @@ export default function InventoryPage() {
   const treasury = treasuryData?.accounts || [];
 
   const getForTenant = useGetForTenant();
-  const addProduct = useAddProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
-  const addCustomUnit = useAddCustomUnit();
   const { showToast } = useToast();
   
   const isOwner = user?.role === 'owner';
-  const canViewCost = isOwner || user?.permissions?.inventory?.viewCostPrice;
   const canAddEdit = isOwner || user?.permissions?.inventory?.add || user?.permissions?.inventory?.edit;
   const canDelete = isOwner || user?.permissions?.inventory?.delete;
 
@@ -418,10 +414,6 @@ export default function InventoryPage() {
     return days;
   })();
 
-  const openAdd = () => {
-    setEditProduct(null);
-    setSlideOpen(true);
-  };
 
   const openEdit = (p: typeof myProducts[0]) => {
     setEditProduct(p);
@@ -519,12 +511,11 @@ export default function InventoryPage() {
     }
   };
 
-  const { isLowStock, isTrending, topVariantId } = (() => {
-    if (!insightTarget) return { isLowStock: false, isTrending: false, topVariantId: null };
-    const low = insightTarget.quantity < insightTarget.minQuantity;
+  const { isLowStock, isTrending } = (() => {
+    if (!insightTarget) return { isLowStock: false, isTrending: false };
+    const low = insightTarget.quantity < (insightTarget.minQuantity || 0);
     const trending = insightSalesQty > 0 && insightSalesQty >= Math.max(10, insightTarget.quantity * 0.3);
-    const top = insightTarget.variants?.[0]?.id || null; // Simplified for stability
-    return { isLowStock: low, isTrending: trending, topVariantId: top };
+    return { isLowStock: low, isTrending: trending };
   })();
 
   const filters: { key: Filter; label: string; count?: number; colorClass?: string; dotColor?: string }[] = [

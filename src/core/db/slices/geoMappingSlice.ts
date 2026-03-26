@@ -21,13 +21,13 @@ export interface GeoMappingSlice {
   // ══ City Mappings ══
   addCityMapping: (m: ShippingCityMapping) => Promise<{ success: boolean; error?: string }>;
   updateCityMapping: (id: string, data: Partial<ShippingCityMapping>) => void;
-  addBunyanCity: (cityName: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  addBunyanCity: (cityName: string) => Promise<{ success: boolean; data?: BunyanCity; error?: string }>;
 
   // ══ Region Mappings ══
   addRegionMapping: (m: ShippingRegionMapping) => Promise<{ success: boolean; error?: string }>;
   updateRegionMapping: (id: string, data: Partial<ShippingRegionMapping>) => void;
   removeRegionMapping: (id: string) => void;
-  addBunyanRegion: (regionName: string, cityId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+  addBunyanRegion: (regionName: string, cityId: number) => Promise<{ success: boolean; data?: BunyanRegion; error?: string }>;
 
   // ══ Supabase Fetcher ══
   fetchGeoMappings: () => Promise<void>;
@@ -56,7 +56,18 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
         const cityMaps: ShippingCityMapping[] = [];
         const regionMaps: ShippingRegionMapping[] = [];
 
-        dbMappings.forEach((m: any) => {
+        interface GeoMappingRow {
+          id: string;
+          provider: ShippingCityMapping['provider'];
+          parent_mapping_id: string | null;
+          bunyan_city_id: number | null;
+          bunyan_region_id: number | null;
+          provider_city_id: number;
+          provider_region_id: number | null;
+          is_active: boolean;
+        }
+
+        (dbMappings as unknown as GeoMappingRow[]).forEach((m) => {
           if (m.provider_region_id === null || m.provider_region_id === undefined) {
             cityMaps.push({
               id: m.id,
@@ -73,7 +84,7 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
               id: m.id,
               city_mapping_id: m.parent_mapping_id || '',
               provider: m.provider,
-              bunyan_region_id: m.bunyan_region_id,
+              bunyan_region_id: m.bunyan_region_id!,
               provider_city_id: m.provider_city_id,
               provider_region_id: m.provider_region_id,
               is_active: m.is_active,
@@ -92,7 +103,7 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
   addCityMapping: async (m) => {
     const supabase = createClient();
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         provider: m.provider,
         parent_mapping_id: null,
         bunyan_city_id: m.bunyan_city_id ? Number(m.bunyan_city_id) : null,
@@ -125,8 +136,9 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
         };
       });
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 
@@ -151,15 +163,16 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
 
       set((s) => ({ bunyanCities: [...s.bunyanCities, data] }));
       return { success: true, data };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 
   addRegionMapping: async (m) => {
     const supabase = createClient();
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         provider: m.provider,
         bunyan_city_id: null,
         bunyan_region_id: Number(m.bunyan_region_id),
@@ -192,8 +205,9 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
         };
       });
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 
@@ -220,8 +234,9 @@ export const createGeoMappingSlice: StateCreator<GeoMappingSlice, [], [], GeoMap
 
       set((s) => ({ bunyanRegions: [...s.bunyanRegions, data] }));
       return { success: true, data };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return { success: false, error: msg };
     }
   },
 });

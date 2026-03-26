@@ -131,7 +131,7 @@ export const useAuthStore = create<AuthState>()(
           tenantId: profile.tenant_id,
           fullName: profile.full_name,
           phone: profile.phone ?? null,
-          role: profile.role as any,
+          role: profile.role as 'super_admin' | 'owner' | 'partner' | 'employee',
           isActive: profile.is_active,
           email: profile.email,
           tenantName: tenant?.name,
@@ -204,13 +204,14 @@ export const useAuthStore = create<AuthState>()(
 
     // ✅ تسجيل في سجل التدقيق
     try {
-      const { useDataStore } = require('../db/store');
-      useDataStore.getState().addAuditLog({
-        id: `audit-${Date.now()}`,
-        adminId: state.user.id,
-        tenantId,
-        action: 'impersonate',
-        timestamp: new Date().toISOString(),
+      import('../db/store').then(({ useDataStore }) => {
+        useDataStore.getState().addAuditLog({
+          id: `audit-${Date.now()}`,
+          adminId: state.user!.id,
+          tenantId,
+          action: 'impersonate',
+          timestamp: new Date().toISOString(),
+        });
       });
     } catch { /* store might not be initialized yet */ }
 

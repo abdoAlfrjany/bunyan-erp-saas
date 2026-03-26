@@ -73,8 +73,9 @@ export async function requireAuth(): Promise<AuthResult | NextResponse> {
       tenantId,
       role: role || 'employee',
     };
-  } catch (err: any) {
-    console.error('[requireAuth] Exception:', err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[requireAuth] Exception:', msg);
     return NextResponse.json(
       { error: 'خطأ داخلي في التحقق من الهوية' },
       { status: 500 }

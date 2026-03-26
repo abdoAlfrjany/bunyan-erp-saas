@@ -3,21 +3,21 @@
 // 🔒 محمي بـ requireAuth + يتطلب role === 'owner'
 
 import { createClient } from '@supabase/supabase-js';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireAuth } from '@/core/server/auth';
 
-export async function GET(req: NextRequest) {
+export async function GET() {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
+  if (auth.role !== 'owner' && auth.role !== 'super_admin') {
+    return NextResponse.json(
+      { error: 'غير مصرح — فحص قاعدة البيانات متاح للمالك فقط' },
+      { status: 403 }
+    );
+  }
+
   try {
-    const auth = await requireAuth();
-    if (auth instanceof NextResponse) return auth;
-
-    if (auth.role !== 'owner' && auth.role !== 'super_admin') {
-      return NextResponse.json(
-        { error: 'غير مصرح — فحص قاعدة البيانات متاح للمالك فقط' },
-        { status: 403 }
-      );
-    }
-
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -28,8 +28,9 @@ export async function GET(req: NextRequest) {
       'products', 'orders', 'customers', 'debts', 'treasury_accounts',
       'treasury_transactions', 'partners', 'employees', 'couriers',
       'profiles', 'tenants', 'subscriptions', 'bunyan_cities',
-      'bunyan_regions', 'provider_geo_mappings', 'vanex_settlements'
+      'bunyan_regions', 'provider_geo_mappings', 'courier_settlements'
     ];
+    const MONITORED_TABLES = publicTables; // Alias for clarity in new sections
 
     // ═══ 1. إحصاءات الجداول (عدد الصفوف) ═══
     const stats: { table_name: string; estimated_rows: number }[] = [];
@@ -47,44 +48,55 @@ export async function GET(req: NextRequest) {
     }[] = [];
 
     try {
-      const { data: rawIndexes, error: idxErr } = await supabase
-        .from('pg_indexes' as any)
-        .select('indexname, tablename, indexdef')
+      type IndexInfo = { table: string; name: string; def: string; columns: string; };
+      let indexes: IndexInfo[] = [];
+
+      const { data: idxData } = await supabase
+        .from('pg_indexes' as unknown as 'profiles')
+        .select('tablename, indexname, indexdef')
         .eq('schemaname', 'public')
-        .order('tablename');
+        .in('tablename', MONITORED_TABLES);
 
-      if (!idxErr && rawIndexes && Array.isArray(rawIndexes)) {
-        // Group by table + normalized column signature extracted from indexdef
-        const groups: Record<string, { indexname: string; tablename: string }[]> = {};
-        for (const idx of rawIndexes as any[]) {
-          const defLower = (idx.indexdef as string).toLowerCase();
-          // Extract columns from the btree(...) part
-          const colMatch = defLower.match(/using\s+btree\s*\(([^)]+)\)/);
-          const colSig = colMatch
-            ? colMatch[1].replace(/\s+/g, ' ').trim()
-            : defLower;
-          const key = `${idx.tablename}__${colSig}`;
-          if (!groups[key]) groups[key] = [];
-          groups[key].push({ indexname: idx.indexname, tablename: idx.tablename });
-        }
+      if (idxData && Array.isArray(idxData)) {
+        interface PgIndex { tablename: string; indexname: string; indexdef: string; }
+        indexes = (idxData as unknown as PgIndex[]).map(i => ({
+          table: i.tablename,
+          name: i.indexname,
+          def: i.indexdef,
+          columns: i.indexdef.match(/\(([^)]+)\)/)?.[1] ?? '',
+        }));
+      }
 
-        for (const [, group] of Object.entries(groups)) {
-          if (group.length <= 1) continue;
-          // Keep: prefer _pkey first, then longer names (more descriptive)
-          const sorted = [...group].sort((a, b) => {
-            if (a.indexname.endsWith('_pkey')) return -1;
-            if (b.indexname.endsWith('_pkey')) return 1;
-            return b.indexname.length - a.indexname.length;
+      // Group by table + normalized column signature extracted from indexdef
+      const groups: Record<string, { indexname: string; tablename: string }[]> = {};
+      for (const idx of indexes) {
+        const defLower = (idx.def).toLowerCase();
+        // Extract columns from the btree(...) part
+        const colMatch = defLower.match(/using\s+btree\s*\(([^)]+)\)/);
+        const colSig = colMatch
+          ? colMatch[1].replace(/\s+/g, ' ').trim()
+          : defLower;
+        const key = `${idx.table}__${colSig}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push({ indexname: idx.name, tablename: idx.table });
+      }
+
+      for (const [, group] of Object.entries(groups)) {
+        if (group.length <= 1) continue;
+        // Keep: prefer _pkey first, then longer names (more descriptive)
+        const sorted = [...group].sort((a, b) => {
+          if (a.indexname.endsWith('_pkey')) return -1;
+          if (b.indexname.endsWith('_pkey')) return 1;
+          return b.indexname.length - a.indexname.length;
+        });
+        const keep = sorted[0];
+        for (let i = 1; i < sorted.length; i++) {
+          duplicateIndexes.push({
+            keep: keep.indexname,
+            drop: sorted[i].indexname,
+            table: keep.tablename,
+            reason: `كلاهما على نفس الأعمدة`,
           });
-          const keep = sorted[0];
-          for (let i = 1; i < sorted.length; i++) {
-            duplicateIndexes.push({
-              keep: keep.indexname,
-              drop: sorted[i].indexname,
-              table: keep.tablename,
-              reason: `كلاهما على نفس الأعمدة`,
-            });
-          }
         }
       }
     } catch {
@@ -95,13 +107,14 @@ export async function GET(req: NextRequest) {
     // ═══ 3. فحص RLS (من pg_class) ═══
     const rlsResults: { table: string; rls_enabled: boolean }[] = [];
     try {
+      interface PgClass { relname: string; relrowsecurity: boolean; }
       const { data: rlsData } = await supabase
-        .from('pg_class' as any)
+        .from('pg_class' as unknown as 'profiles')
         .select('relname, relrowsecurity')
         .in('relname', publicTables);
 
       for (const table of publicTables) {
-        const pgRow = (rlsData as any[])?.find((r: any) => r.relname === table);
+        const pgRow = (rlsData as unknown as PgClass[])?.find((r: PgClass) => r.relname === table);
         rlsResults.push({
           table,
           rls_enabled: pgRow ? !!pgRow.relrowsecurity : true,
@@ -139,10 +152,10 @@ export async function GET(req: NextRequest) {
         slowTables,
       },
     });
-  } catch (err: any) {
-    console.error('[API Diagnostics] Error:', err.message);
+  } catch (err: unknown) {
+    console.error('[API Diagnostics] Error:', (err as Error).message);
     return NextResponse.json(
-      { success: false, error: err.message },
+      { success: false, error: (err as Error).message },
       { status: 500 }
     );
   }

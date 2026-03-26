@@ -3,44 +3,27 @@
 // مع منطق الخزينة وإشعارات المخزون
 
 import type { StateCreator } from 'zustand';
-import type { Product, Notification, TreasuryAccount, TreasuryTransaction } from '../../types';
+import type { Product } from '../../types';
 import { createClient } from '../supabase';
 
 // ══════════════════════════════════════════
 // Helpers: Mappers between Supabase & App
 // ══════════════════════════════════════════
-export const mapSupabaseRowToProduct = (row: any): Product => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  name: row.name,
-  category: row.category || '',
-  unit: row.unit || 'قطعة',
-  costPrice: Number(row.cost_price || 0),
-  sellingPrice: Number(row.selling_price || 0),
-  quantity: Number(row.quantity || 0),
-  minQuantity: Number(row.min_quantity || 0),
-  itemCode: row.item_code || '',
-  barcode: row.barcode || '',
-  productType: row.product_type || 'simple',
-  variants: row.variants || [],
-  isActive: row.is_active ?? true,
-});
-
-const mapProductToSupabaseRow = (p: Partial<Product> & { tenantId?: string }) => ({
-  name: p.name,
-  category: p.category,
-  unit: p.unit,
-  cost_price: p.costPrice,
-  selling_price: p.sellingPrice,
-  quantity: p.quantity,
-  min_quantity: p.minQuantity,
-  item_code: p.itemCode,
-  barcode: p.barcode,
-  product_type: p.productType,
-  variants: p.variants,
-  is_active: p.isActive,
-  ...(p.id ? { id: p.id } : {}),
-  ...(p.tenantId ? { tenant_id: p.tenantId } : {}),
+export const mapSupabaseRowToProduct = (row: Record<string, unknown>): Product => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  name: row['name'] as string,
+  category: (row['category'] as string) || '',
+  unit: (row['unit'] as string) || 'قطعة',
+  costPrice: Number(row['cost_price'] || 0),
+  sellingPrice: Number(row['selling_price'] || 0),
+  quantity: Number(row['quantity'] || 0),
+  minQuantity: Number(row['min_quantity'] || 0),
+  itemCode: (row['item_code'] as string) || '',
+  barcode: (row['barcode'] as string) || '',
+  productType: (row['product_type'] as Product['productType']) || 'simple',
+  variants: (row['variants'] as Product['variants']) || [],
+  isActive: (row['is_active'] as boolean) ?? true,
 });
 
 export interface ProductsSlice {
@@ -51,7 +34,7 @@ export interface ProductsSlice {
   deleteProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const createProductsSlice: StateCreator<any, [], [], ProductsSlice> = (set, get) => ({
+export const createProductsSlice: StateCreator<ProductsSlice, [], [], ProductsSlice> = (set, get) => ({
   products: [],
 
   fetchProducts: async (tenantId: string) => {
@@ -66,7 +49,7 @@ export const createProductsSlice: StateCreator<any, [], [], ProductsSlice> = (se
 
       if (error) throw error;
       if (data) {
-        set({ products: data.map(mapSupabaseRowToProduct) });
+        set({ products: data.map((r) => mapSupabaseRowToProduct(r as Record<string, unknown>)) });
       }
     } catch (error) {
       console.error('❌ Error fetching products:', error);
@@ -88,8 +71,8 @@ export const createProductsSlice: StateCreator<any, [], [], ProductsSlice> = (se
 
       // We no longer update the local 'products' array manually.
       // The UI component (SlideOver/Page) will trigger a React Query refetch.
-    } catch (err: any) {
-      console.error('❌ Error adding product:', err.message);
+    } catch (err) {
+      console.error('❌ Error adding product:', err instanceof Error ? err.message : 'Unknown error');
       throw err;
     }
   },
@@ -112,8 +95,8 @@ export const createProductsSlice: StateCreator<any, [], [], ProductsSlice> = (se
 
       // No manual local state update here.
       // Component will invalidate React Query products.
-    } catch (err: any) {
-      console.error('❌ Error updating product:', err.message);
+    } catch (err) {
+      console.error('❌ Error updating product:', err instanceof Error ? err.message : 'Unknown error');
       throw err;
     }
   },
@@ -130,9 +113,10 @@ export const createProductsSlice: StateCreator<any, [], [], ProductsSlice> = (se
       }
 
       return { success: true };
-    } catch (err: any) {
-      console.error('❌ Error deleting product:', err.message);
-      return { success: false, error: err.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('❌ Error deleting product:', msg);
+      return { success: false, error: msg };
     }
   },
 });

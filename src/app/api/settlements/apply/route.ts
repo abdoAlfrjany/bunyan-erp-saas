@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    const { settlementId, tenantId, createdBy } = await req.json();
+    const { settlementId, tenantId } = await req.json();
 
     if (!settlementId || !tenantId) {
       return NextResponse.json({ success: false, error: 'settlementId و tenantId مطلوبان' }, { status: 400 });
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // 1. جلب التسوية والتحقق من حالتها
     const { data: settlement, error: fetchError } = await supabase
-      .from('vanex_settlements')
+      .from('courier_settlements')
       .select('*')
       .eq('id', settlementId)
       .eq('tenant_id', tenantId)
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     // 4. تعيين التسوية كـ "مطبّقة" (Audit Trail: من الذي طبق ومع من ارتبطت)
     const { error: updateError } = await supabase
-      .from('vanex_settlements')
+      .from('courier_settlements')
       .update({
         status: 'applied',
         applied_at: new Date().toISOString(),
@@ -107,8 +107,8 @@ export async function POST(req: NextRequest) {
       accountType: settlement.target_account_type,
       settlementNumber: settlement.settlement_number,
     });
-  } catch (err: any) {
-    console.error('[POST /api/settlements/apply] Error:', err.message);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    console.error('[POST /api/settlements/apply] Error:', (err as Error).message);
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }

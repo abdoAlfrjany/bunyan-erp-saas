@@ -22,7 +22,8 @@ import { ORDER_STATUS } from '@/shared/utils/statusColors';
 import {
   ShoppingCart, Search, Plus, Trash2, Package,
   CheckCircle2, Truck, Ban, RotateCcw, ArrowDownCircle,
-  Filter, Calendar, Percent, RefreshCw, Copy, Edit2
+  Filter, Calendar, Percent, RefreshCw, Edit2,
+  CreditCard, ArrowRight, Check, ShieldCheck, User, X, ChevronLeft
 } from 'lucide-react';
 import type { Order, Product } from '@/core/types';
 
@@ -62,12 +63,11 @@ export default function OrdersPage() {
   const user = useAuthStore(s => s.user);
 
   // ✅ useShallow للبيانات — يقارن محتوى المصفوفات لا المرجع
-  const { customers, shippingCityMappings, shippingRegionMappings, vanexSubCities, fetchGeoMappings } = useDataStore(
+  const { customers, shippingCityMappings, shippingRegionMappings, fetchGeoMappings } = useDataStore(
     useShallow(s => ({
       customers: s.customers,
       shippingCityMappings: s.shippingCityMappings,
       shippingRegionMappings: s.shippingRegionMappings,
-      vanexSubCities: s.vanexSubCities,
       fetchGeoMappings: s.fetchGeoMappings,
     }))
   );
@@ -76,7 +76,6 @@ export default function OrdersPage() {
   const getForTenant      = useDataStore(s => s.getForTenant);
   const addOrder          = useDataStore(s => s.addOrder);
   const updateOrderStatus = useDataStore(s => s.updateOrderStatus);
-  const patchOrder        = useDataStore(s => s.patchOrder);
   const sendOrderToVanex  = useDataStore(s => s.sendOrderToVanex);
   const cancelOrderVanex  = useDataStore(s => s.cancelOrderVanex);
   const fetchVanexSubCities = useDataStore(s => s.fetchVanexSubCities);
@@ -85,7 +84,7 @@ export default function OrdersPage() {
   const tid = user?.tenantId || '';
 
   // ── React Query لجلب الطلبيات ──
-  const { data: myOrders = [], isLoading: isOrdersLoading, refetch } = useOrdersQuery(tid);
+  const { data: myOrders = [], isLoading: isOrdersLoading } = useOrdersQuery(tid);
 
   // ── React Query لجلب المنتجات (لإنشاء الطلبيات السريعة) ──
   const { data: rawProducts = [] } = useProductsQuery(tid);
@@ -112,9 +111,9 @@ export default function OrdersPage() {
   const [sendingToVanex, setSendingToVanex] = useState<string | null>(null);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
-  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [cityFocused, setCityFocused] = useState(false);
+  const [step, setStep] = useState(1);
 
   const handleManualSync = async () => {
     if (!tid) return;
@@ -149,7 +148,7 @@ export default function OrdersPage() {
   // نموذج طلبية جديدة
   const [newOrder, setNewOrder] = useState({
     customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '',
-    vanexCityId: undefined as number | undefined, vanexSubCityId: undefined as number | undefined,
+    courierCityId: undefined as number | undefined, courierSubCityId: undefined as number | undefined,
     deliveryType: 'courier_company' as 'internal' | 'courier_company' | 'pickup',
     courierId: '', notes: '', discount: 0, priceIncludesDelivery: false,
     commissionBy: 'customer' as 'customer' | 'market',
@@ -172,18 +171,16 @@ export default function OrdersPage() {
   });
   const [orderItems, setOrderItems] = useState<{ productId: string; quantity: number; variantSize?: string }[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  
-  const [vanexDeliveryPrice, setVanexDeliveryPrice] = useState<number | null>(null);
+  const [showProductList, setShowProductList] = useState(false);
+  const [showPhone2, setShowPhone2] = useState(false);
 
   useEffect(() => {
     const courier = myCouriers.find(c => c.id === newOrder.courierId);
     if (!courier || (courier.apiProvider?.includes('vanex') === false && courier.provider?.includes('vanex') === false && !courier.name.includes('فانكس'))) {
-      setVanexDeliveryPrice(null);
       return;
     }
 
-    if (!newOrder.dimLength || !newOrder.dimWidth || !newOrder.dimHeight || !newOrder.vanexCityId || !courier.apiCredentials?.vanexFromRegionId) {
-      setVanexDeliveryPrice(null);
+    if (!newOrder.dimLength || !newOrder.dimWidth || !newOrder.dimHeight || !newOrder.courierCityId || !courier.apiCredentials?.vanexFromRegionId) {
       return;
     }
 
@@ -191,23 +188,20 @@ export default function OrdersPage() {
       try {
         const adapter = new VanexAdapter();
         const fromRegionId = Number(courier.apiCredentials!.vanexFromRegionId);
-        const toCityId = Number(newOrder.vanexCityId);
+        const toCityId = Number(newOrder.courierCityId);
         if (isNaN(fromRegionId) || isNaN(toCityId)) return;
         
         const price = await adapter.calculateDeliveryPrice(fromRegionId, toCityId);
         if (price && price.total !== undefined) {
-          setVanexDeliveryPrice(price.total);
-        } else {
-          setVanexDeliveryPrice(null);
+          // Future: use price.total in UI
         }
       } catch (err) {
         console.error('Failed to calculate vanex price', err);
-        setVanexDeliveryPrice(null);
       }
     };
 
     fetchPrice();
-  }, [newOrder.dimLength, newOrder.dimWidth, newOrder.dimHeight, newOrder.courierId, newOrder.vanexCityId, myCouriers]);
+  }, [newOrder.dimLength, newOrder.dimWidth, newOrder.dimHeight, newOrder.courierId, newOrder.courierCityId, myCouriers]);
 
   const myCustomers = useMemo(() => getForTenant(customers, tid), [customers, tid, getForTenant]);
 
@@ -248,7 +242,6 @@ export default function OrdersPage() {
   }, [myOrders, statusFilter, search, dateFrom, dateTo, courierFilter]);
 
   // ═══ إدارة عناصر الطلبية ═══
-  const addItem = () => setOrderItems([...orderItems, { productId: '', quantity: 1, variantSize: '' }]);
   const removeItem = (idx: number) => setOrderItems(orderItems.filter((_, i) => i !== idx));
   const updateItem = (idx: number, field: 'productId' | 'quantity' | 'variantSize', value: string | number) => {
     setOrderItems(orderItems.map((item, i) => i === idx ? { ...item, [field]: value } : item));
@@ -284,7 +277,6 @@ export default function OrdersPage() {
 
   // ═══ حذف الطلبية نهائياً ═══
   const handleDeleteOrder = async (orderId: string) => {
-    setDeletingOrderId(orderId);
     try {
       const res = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
       const data = await res.json();
@@ -298,7 +290,7 @@ export default function OrdersPage() {
     } catch {
       showToast('خطأ في الاتصال أثناء الحذف', 'error');
     } finally {
-      setDeletingOrderId(null);
+      // Done
     }
   };
 
@@ -306,7 +298,7 @@ export default function OrdersPage() {
   const handleBulkSend = async () => {
     const pendingOrders = filtered.filter(o => 
       o.status === 'pending' && 
-      !o.vanex_package_id && 
+      !o.courier_package_id && 
       o.deliveryType === 'courier_company' && 
       o.courierCompanyId
     );
@@ -333,7 +325,7 @@ export default function OrdersPage() {
         const data = await res.json();
         if (data.success) successCount++;
         else failCount++;
-      } catch (err) {
+      } catch {
         failCount++;
       } finally {
         setSendingToVanex(null);
@@ -354,14 +346,14 @@ export default function OrdersPage() {
       customerPhone2: '', // Default as it's not in Order type yet
       customerAddress: o.customerAddress || '',
       customerCity: o.customerCity,
-      vanexCityId: o.vanexCityId,
-      vanexSubCityId: o.vanexSubCityId,
-      deliveryType: o.deliveryType as any,
+      courierCityId: o.courierCityId,
+      courierSubCityId: o.courierSubCityId,
+      deliveryType: o.deliveryType as 'internal' | 'courier_company' | 'pickup',
       courierId: o.courierCompanyId || '',
       notes: o.notes || '',
       discount: o.discount || 0,
       priceIncludesDelivery: o.priceIncludesDelivery,
-      commissionBy: o.commission_by as any || 'customer',
+      commissionBy: (o.commission_by as 'customer' | 'market') || 'customer',
       paymentMethod: o.is_online_payable ? 'online' : 'cash',
       isPrepaid: (o.prepaid_amount || 0) > 0,
       prepaidAmount: o.prepaid_amount || 0,
@@ -372,7 +364,7 @@ export default function OrdersPage() {
     });
     // Fill items
     if (o.items) {
-      setOrderItems(o.items.map((i: any) => ({
+      setOrderItems(o.items.map((i: { productId: string; quantity: number; variantSize?: string }) => ({
         productId: i.productId,
         quantity: i.quantity,
         variantSize: i.variantSize || ''
@@ -412,14 +404,14 @@ export default function OrdersPage() {
         }
         
         // التحقق من المنطقة إذا كانت مطلوبة ولها خرائط في بنيان
-        if (newOrder.vanexCityId) {
+        if (newOrder.courierCityId) {
            const cityMapping = shippingCityMappings.find(m => {
               const bName = cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName;
-              return m.is_active && m.provider_city_id === newOrder.vanexCityId && bName === newOrder.customerCity;
+              return m.is_active && m.provider_city_id === newOrder.courierCityId && bName === newOrder.customerCity;
            });
            const myRegions = cityMapping ? shippingRegionMappings.filter(r => r.city_mapping_id === cityMapping.id && r.is_active) : [];
            
-           if (myRegions.length > 0 && !newOrder.vanexSubCityId) {
+           if (myRegions.length > 0 && !newOrder.courierSubCityId) {
              showToast('يرجى اختيار المنطقة قبل الإرسال لأن هذه المدينة تتطلب منطقة في نظام التوصيل المقترن', 'error');
              return;
            }
@@ -468,8 +460,8 @@ export default function OrdersPage() {
       customerCity: newOrder.customerCity, 
       deliveryType: newOrder.deliveryType,
       courierCompanyId: newOrder.courierId || undefined, 
-      vanexCityId: newOrder.vanexCityId,
-      vanexSubCityId: newOrder.vanexSubCityId,
+      courierCityId: newOrder.courierCityId,
+      courierSubCityId: newOrder.courierSubCityId,
       deliveryFee, 
       status: 'pending', 
       subtotal, 
@@ -544,7 +536,7 @@ export default function OrdersPage() {
       
       setSlideOpen(false);
       setEditingOrder(null);
-      setNewOrder({ customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '', vanexCityId: undefined, vanexSubCityId: undefined, deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0, showDimensions: false, dimLength: '', dimWidth: '', dimHeight: '', vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false, vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market' });
+      setNewOrder({ customerName: '', customerPhone: '', customerPhone2: '', customerAddress: '', customerCity: '', courierCityId: undefined, courierSubCityId: undefined, deliveryType: 'courier_company', courierId: '', notes: '', discount: 0, priceIncludesDelivery: false, commissionBy: 'customer', paymentMethod: 'cash', isPrepaid: false, prepaidAmount: 0, showDimensions: false, dimLength: '', dimWidth: '', dimHeight: '', vanexInsure: false, vanexMatch: false, vanexInspection: false, vanexFragile: false, vanexTryOn: false, vanexPartialAllowed: false, vanexNoHeat: false, vxExtraShippingCostOn: 'market', vxCollectionCommissionOn: 'market' });
       setOrderItems([]);
       queryClient.invalidateQueries({ queryKey: ['orders', tid] });
       queryClient.invalidateQueries({ queryKey: ['products', tid] });
@@ -571,7 +563,7 @@ export default function OrdersPage() {
       const order = myOrders.find(o => o.id === orderId);
       
       // ═══ الأتمتة العكسية — إلغاء الطلبية من نظام فانكس قبل التأكيد محلياً ═══
-      if (newStatus === 'cancelled' && (order?.vanex_package_id || order?.vanex_package_code)) {
+      if (newStatus === 'cancelled' && (order?.courier_package_id || order?.courier_tracking_code)) {
         showToast('جاري إلغاء الطلبية تلقائياً من نظام شركة التوصيل...', 'info');
         const cancelResult = await cancelOrderVanex(orderId);
         if (!cancelResult.success) {
@@ -595,19 +587,10 @@ export default function OrdersPage() {
     }
   };
 
-  const isVanexCitySuspended = useMemo(() => {
-    if (newOrder.deliveryType !== 'courier_company' || !newOrder.courierId || !newOrder.customerCity) return false;
-    const courier = myCouriers.find(c => c.id === newOrder.courierId);
-    if (!courier || (courier.apiProvider?.includes('vanex') === false && courier.provider?.includes('vanex') === false && !courier.name.includes('فانكس'))) return false;
-    
-    const cities = useDataStore.getState().bunyanCities;
-    const mapping = shippingCityMappings.find(m => {
-       const bName = cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName;
-       return bName === newOrder.customerCity && (!m.provider || m.provider?.includes('vanex'));
-    });
-    
-    return mapping ? mapping.is_active === false : false;
-  }, [newOrder.deliveryType, newOrder.courierId, newOrder.customerCity, myCouriers, shippingCityMappings]);
+
+/*
+  const isVanexCitySuspended = ... (unused but logic kept for reference)
+*/
 
   const statusFiltersList: { key: StatusFilter; label: string }[] = [
     { key: 'all', label: 'الكل' },
@@ -628,7 +611,7 @@ export default function OrdersPage() {
     const courier = myCouriers.find(c => c.id === order.courierCompanyId);
     if (!courier?.isApiConnected) return null;
 
-    if (!order.vanex_package_code) {
+    if (!order.courier_tracking_code) {
       if (order.status === 'pending') return { label: '📦 لم تُرسل', bg: 'bg-gray-100', text: 'text-gray-500' };
       return null;
     }
@@ -670,81 +653,127 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      {/* رأس الصفحة */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
-            <ShoppingCart size={24} className="text-bunyan-600" />
-            الطلبيات والمبيعات
-            {isOrdersLoading && <span className="w-4 h-4 rounded-full border-2 border-bunyan-500 border-t-transparent animate-spin ml-2"></span>}
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">تتبع رحلة الطلبيات من الإنشاء وحتى التوصيل</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={handleBulkSend}
-            disabled={isBulkSending}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
-              isBulkSending 
-                ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                : 'bg-white text-violet-600 border-violet-100 hover:bg-violet-50 hover:border-violet-200 shadow-sm'
-            }`}
-          >
-            {isBulkSending ? (
-              <span className="w-4 h-4 border-2 border-violet-600 border-t-transparent animate-spin rounded-full" />
-            ) : (
-              <Truck size={18} />
-            )}
-            إرسال الكل للتوصيل
-          </button>
+      {/* 🚀 رأس الصفحة - v5.0 */}
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+              <div className="p-2 bg-indigo-600 rounded-xl shadow-lg shadow-indigo-500/20">
+                <ShoppingCart size={24} className="text-white" />
+              </div>
+              إدارة الطلبيات
+              {isOrdersLoading && (
+                <div className="flex gap-1 items-center px-3 py-1 bg-slate-100 rounded-full">
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></span>
+                </div>
+              )}
+            </h1>
+            <p className="text-slate-500 font-medium">نظام متطور لمتابعة حالة المبيعات وعمليات الشحن</p>
+          </div>
 
-          <button onClick={() => { setEditingOrder(null); setSlideOpen(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-bunyan-600 text-white rounded-xl text-sm font-bold hover:bg-bunyan-700 transition-colors shadow-sm focus:ring-2 focus:ring-bunyan-500/50 group">
-            <Plus size={18} className="group-hover:rotate-90 transition-transform" /> 
-            طلبية جديدة
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={handleBulkSend}
+              disabled={isBulkSending}
+              className="group flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-200 hover:bg-slate-50 hover:text-indigo-600 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            >
+              <Truck size={18} className="group-hover:translate-x-1 transition-transform" />
+              إرسال جماعي
+            </button>
+            <button 
+              onClick={() => { setEditingOrder(null); setStep(1); setSlideOpen(true); }}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-500/30 transition-all active:scale-95 group shadow-lg shadow-indigo-500/20"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform" />
+              طلبية جديدة
+            </button>
+          </div>
+        </div>
+
+        {/* 📊 ملخص الأداء السريع - KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-1.5 bg-white/40 backdrop-blur-sm border border-slate-200/60 rounded-[2.5rem] shadow-sm">
+          {[
+            { label: 'إجمالي الطلبات', value: filtered.length, color: 'from-blue-600 to-indigo-600', icon: Package },
+            { label: 'جديدة / معلقة', value: filtered.filter(o => o.status === 'pending').length, color: 'from-emerald-500 to-teal-600', icon: Calendar },
+            { label: 'تحت التنفيذ', value: filtered.filter(o => ['processing', 'ready_to_ship'].includes(o.status)).length, color: 'from-amber-500 to-orange-600', icon: RefreshCw },
+            { label: 'إيرادات محققة', value: formatCurrency(filtered.filter(o => o.status === 'delivered').reduce((acc, o) => acc + o.total, 0)), color: 'from-indigo-600 to-violet-700', icon: Percent },
+          ].map((stat, i) => (
+            <div key={i} className="flex items-center justify-between p-5 bg-white rounded-[2rem] border border-slate-100 shadow-sm relative overflow-hidden group hover:border-indigo-200 transition-colors">
+              <div className="space-y-1 relative z-10">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{stat.label}</p>
+                <p className={`text-xl font-black bg-gradient-to-r ${stat.color} bg-clip-text text-transparent group-hover:scale-105 transition-transform origin-right`}>
+                  {stat.value}
+                </p>
+              </div>
+              <div className={`p-3 rounded-2xl bg-gradient-to-br ${stat.color} bg-opacity-10 group-hover:rotate-12 transition-transform`}>
+                <stat.icon size={20} className="text-white" />
+              </div>
+              <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${stat.color} opacity-[0.03] rounded-full -mr-8 -mt-8`} />
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* شريط البحث والفلاتر */}
-      <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl border border-white/50 shadow-lg shadow-gray-200/50 space-y-4 sticky top-4 z-40">
-        <div className="flex flex-wrap gap-4">
-          <div className="relative flex-1 min-w-[200px] group">
-            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-bunyan-600 transition-colors" />
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} 
-              placeholder="بحث برقم الطلبية أو اسم الزبون أو الهاتف..."
-              className="w-full pr-10 pl-4 py-3 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-bunyan-500/10 focus:bg-white focus:border-bunyan-500 transition-all shadow-inner" 
+      {/* 🔍 شريط البحث والفلاتر - v5.0 */}
+      <div className="bg-white/80 backdrop-blur-md p-4 rounded-[2rem] border border-white/50 shadow-xl shadow-slate-200/50 space-y-4">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1 group">
+            <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+            <input 
+              type="text" 
+              value={search} 
+              onChange={(e) => setSearch(e.target.value)} 
+              placeholder="البحث برقم الطلبية، اسم الزبون، أو رقم الهاتف..."
+              className="w-full pr-12 pl-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:bg-white focus:border-indigo-500 transition-all font-medium" 
             />
           </div>
-          <button onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-5 py-3 border rounded-2xl text-sm font-bold transition-all duration-300 ${
-              showFilters || dateFrom || dateTo || statusFilter !== 'all' || courierFilter !== 'all'
-                ? 'border-bunyan-500 text-bunyan-700 bg-bunyan-50/80 shadow-md shadow-bunyan-500/10' 
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:shadow-md'
-            }`}>
-            <Filter size={18} className={showFilters ? 'animate-pulse' : ''} />
-            <span>الفلاتر المتقدمة</span>
-            {(statusFilter !== 'all' || courierFilter !== 'all' || dateFrom) && (
-              <span className="w-2 h-2 bg-bunyan-600 rounded-full" />
-            )}
-          </button>
+          
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold transition-all ${
+                showFilters || dateFrom || statusFilter !== 'all'
+                  ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Filter size={18} />
+              الفلاتر المتقدمة
+              {(statusFilter !== 'all' || dateFrom) && (
+                <span className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
+              )}
+            </button>
+
+            <button
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="p-3.5 bg-white text-slate-400 border border-slate-200 rounded-2xl hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-90"
+              title="مزامنة قسرية مع شركات التوصيل"
+            >
+              <RefreshCw size={20} className={isSyncing ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
 
-        {/* فلاتر متقدمة */}
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-100 animate-slide-down">
-            <div className="md:col-span-3 pb-2 flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50/50 rounded-[1.5rem] border border-slate-100 animate-slide-down">
+            <div className="md:col-span-4 flex flex-wrap gap-2 pb-2">
               {statusFiltersList.map((f) => (
-                <button key={f.key} onClick={() => setStatusFilter(f.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                <button 
+                  key={f.key} 
+                  onClick={() => setStatusFilter(f.key)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
                     statusFilter === f.key 
-                      ? 'bg-bunyan-600 text-white border-bunyan-600 shadow-sm' 
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-bunyan-300'
-                  }`}>
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/20' 
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                  }`}
+                >
                   {f.label}
                   {f.key !== 'all' && (
-                    <span className={`mr-1.5 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] ${
-                      statusFilter === f.key ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+                    <span className={`mr-2 px-1.5 py-0.5 rounded-md text-[10px] ${
+                      statusFilter === f.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400'
                     }`}>
                       {myOrders.filter(o => o.status === f.key).length}
                     </span>
@@ -753,22 +782,22 @@ export default function OrdersPage() {
               ))}
             </div>
             
-            <div>
-              <label className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1"><Calendar size={12}/> من تاريخ</label>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-400 uppercase tracking-wider block pr-1">من تاريخ</label>
               <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
+                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition-all" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-1"><Calendar size={12}/> إلى تاريخ</label>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-400 uppercase tracking-wider block pr-1">إلى تاريخ</label>
               <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30" />
+                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition-all" />
             </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">شركة التوصيل</label>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-400 uppercase tracking-wider block pr-1">شركة التوصيل</label>
               <select
                 value={courierFilter}
                 onChange={e => setCourierFilter(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-bunyan-500/30"
+                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition-all appearance-none"
               >
                 <option value="all">كل الشركات</option>
                 <option value="internal">توصيل داخلي / استلام</option>
@@ -777,19 +806,11 @@ export default function OrdersPage() {
                 ))}
               </select>
             </div>
-            <div className="flex items-end gap-3 justify-end md:col-span-1 border-t md:border-t-0 md:border-r border-gray-100 pt-3 md:pt-0 md:pr-4">
-              <button
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                title="يُستخدم في حالات الطوارئ فقط إذا تأخر الـ Webhook"
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors ml-auto md:ml-0"
+            <div className="flex items-end gap-2">
+              <button 
+                onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setCourierFilter('all'); setSearch(''); }}
+                className="w-full py-2.5 bg-white text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-50 transition-all shadow-sm active:scale-95"
               >
-                <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                مزامنة قسرية
-              </button>
-              
-              <button onClick={() => { setDateFrom(''); setDateTo(''); setStatusFilter('all'); setSearch(''); setCourierFilter('all'); }}
-                className="px-3 py-2 border rounded-lg text-sm font-bold border-gray-200 text-gray-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors">
                 مسح الفلاتر
               </button>
             </div>
@@ -797,248 +818,172 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* جدول الطلبيات */}
-      <div className="bg-white/50 backdrop-blur-sm rounded-3xl border border-white shadow-2xl shadow-gray-200/40 overflow-hidden">
+      {/* 📦 جدول الطلبيات الاحترافي - High Density v5.0 */}
+      <div className="bg-white rounded-[2.5rem] border border-slate-200/60 shadow-2xl shadow-slate-200/40 overflow-hidden relative">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-right">
-            <thead className="bg-gray-50/50 text-gray-400 font-bold text-[11px] uppercase tracking-widest border-b border-gray-100/50">
-              <tr>
-                <th className="px-6 py-5"># كود الطلبية</th>
-                <th className="px-6 py-5">الزبون و المدينة</th>
-                <th className="px-6 py-5">حالة الشحنة</th>
-                <th className="px-4 py-5">بيانات التتبع</th>
-                <th className="px-6 py-5">إجمالي التحصيل</th>
-                <th className="px-6 py-5">تاريخ الإنشاء</th>
-                <th className="px-6 py-5 text-center">إدارة العمليات</th>
+          <table className="w-full text-right border-collapse">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">المعرف</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">الزبون والوجهة</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">حالة النظام</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">التتبع والشركة</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">المالية</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">التاريخ</th>
+                <th className="px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">الإجراءات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100/50">
+            <tbody className="divide-y divide-slate-50">
               {filtered.map((o) => {
                 const statusInfo = ORDER_STATUS[o.status as keyof typeof ORDER_STATUS];
-                const actions = NEXT_STATUSES[o.status] || [];
+                const courier = myCouriers.find(c => c.id === o.courierCompanyId);
+                const isSentToVanex = !!(o.courier_package_id || o.courier_tracking_code);
+                const vanexBadge = getVanexStatusBadge(o);
+                
                 return (
-                  <tr key={o.id} className="group hover:bg-gray-50/80 transition-all duration-300">
-                    <td className="px-6 py-5">
+                  <tr key={o.id} className="group hover:bg-slate-50/80 transition-all duration-200 h-[56px]">
+                    {/* 1. المعرف */}
+                    <td className="px-6 py-3">
                       <div className="flex flex-col">
-                        <span className="font-black text-gray-900 font-mono tracking-tighter group-hover:text-bunyan-600 transition-colors">{o.orderNumber}</span>
-                        {o.notes && <p className="text-[10px] text-gray-400 font-sans font-normal mt-1 max-w-[120px] truncate leading-relaxed">{o.notes}</p>}
+                        <span className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
+                          {o.orderNumber.replace('ORD-', '')}
+                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                           <span className="text-[10px] text-slate-400 font-mono">ORD</span>
+                           {o.notes && <div className="w-1 h-1 bg-amber-400 rounded-full animate-pulse" title={o.notes} />}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-5">
-                      <p className="font-bold text-gray-900 group-hover:translate-x-1 transition-transform">{o.customerName}</p>
-                      <p className="font-mono text-[10px] text-gray-400 mt-1 bg-gray-100/50 w-fit px-1.5 py-0.5 rounded-md" dir="ltr">{o.customerPhone}</p>
-                    </td>
-                    <td className="px-6 py-5">
-                      {statusInfo ? (() => {
-                        // تخصيص لون الحالة Pending بناءً على الإرسال
-                        let badgeStyle = `${statusInfo.bg} ${statusInfo.text} ${statusInfo.border || 'border-transparent'}`;
-                        let label: string = statusInfo.label;
-                        
-                        if (o.status === 'pending') {
-                          if (o.vanex_package_id || o.vanex_package_code) {
-                            badgeStyle = "bg-blue-50 text-blue-700 border-blue-100 shadow-sm";
-                            label = "مرسلة للتوصيل";
-                          } else {
-                            badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-100 shadow-sm";
-                            label = "طلبية جديدة (مسودة)";
-                          }
-                        }
 
-                        return (
-                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl text-[11px] font-black ${badgeStyle} border transition-transform hover:scale-105 active:scale-95`}>
-                            {statusInfo.dot && <span className={`w-2 h-2 rounded-full shadow-current shadow-sm ${o.status === 'pending' && o.vanex_package_id ? 'bg-blue-400' : statusInfo.dot} animate-pulse`} />}
-                            {label}
-                          </span>
-                        );
-                      })() : (
-                        <span className="text-gray-500 font-bold">{o.status}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {o.deliveryType === 'courier_company' ? (
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-gray-700 font-medium text-xs">
-                            {myCouriers.find(c => c.id === o.courierCompanyId)?.name ?? '—'}
-                          </span>
-                          {/* ═══ كود فانكس — قابل للنسخ + زر التزامن الصغير ═══ */}
-                          {o.vanex_package_code && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(o.vanex_package_code!);
-                                  showToast('تم نسخ كود الشحنة', 'success');
-                                }}
-                                className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 text-[10px] px-2 py-0.5 rounded-md font-mono border border-violet-200 hover:bg-violet-100 transition-colors cursor-pointer w-fit"
-                                title="انقر للنسخ"
-                              >
-                                {o.vanex_package_code}
-                              </button>
-                              
-                              <button
-                                onClick={() => handleTrackOrder(o.id)}
-                                disabled={trackingOrderId === o.id}
-                                className="p-1 rounded-full bg-gray-50 text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all border border-gray-100 disabled:opacity-50"
-                                title="تحديث الحالة من فانكس"
-                              >
-                                <RefreshCw size={10} className={trackingOrderId === o.id ? 'animate-spin' : ''} />
-                              </button>
-                            </div>
-                          )}
-                          
-                          {/* ═══ مؤشر حالة الشحنة ═══ */}
-                          {(() => {
-                            const badge = getVanexStatusBadge(o);
-                            if (!badge || badge.label === '🚛 أُرسلت') return null; // إزالة أُرسلت بناءً على طلب المستخدم
-                            return (
-                                <span className={`inline-block ${badge.bg} ${badge.text} text-[10px] px-2 py-0.5 rounded-md font-semibold mt-1 w-fit`}>
-                                  {badge.label}
-                                </span>
-                            );
-                          })()}
+                    {/* 2. الزبون والوجهة */}
+                    <td className="px-6 py-3">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800 leading-tight">{o.customerName}</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">{o.customerCity}</span>
+                          <span className="text-[10px] text-slate-400 font-medium" dir="ltr">{o.customerPhone}</span>
                         </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs">
-                          {o.deliveryType === 'pickup' ? 'استلام من المحل' : 'توصيل داخلي'}
+                      </div>
+                    </td>
+
+                    {/* 3. الحالة */}
+                    <td className="px-6 py-3 text-center">
+                      <div className="inline-flex items-center justify-center">
+                        <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black shadow-sm ring-1 ring-inset transition-all group-hover:scale-105 active:scale-95 ${
+                          o.status === 'pending'
+                            ? isSentToVanex 
+                              ? 'bg-blue-50 text-blue-700 ring-blue-500/10' 
+                              : 'bg-emerald-50 text-emerald-700 ring-emerald-500/10'
+                            : `${statusInfo?.bg || 'bg-slate-50'} ${statusInfo?.text || 'text-slate-600'} ring-slate-500/10`
+                        }`}>
+                          <div className={`w-1.5 h-1.5 rounded-full ${
+                             o.status === 'pending' ? (isSentToVanex ? 'bg-blue-400' : 'bg-emerald-400') : (statusInfo?.dot?.replace('bg-', '') ? statusInfo.dot : 'bg-slate-400')
+                          }`} />
+                          {o.status === 'pending' ? (isSentToVanex ? 'مرسلة' : 'جديدة') : statusInfo?.label}
                         </span>
-                      )}
+                      </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="font-bold text-gray-900 font-currency">{formatCurrency(o.total)}</p>
-                      {o.discount && o.discount > 0 ? <p className="text-[10px] text-green-600 font-semibold mt-0.5">خصم: {formatCurrency(o.discount)}</p> : null}
+
+                    {/* 4. التتبع والشركة */}
+                    <td className="px-6 py-3">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                           <span className="text-xs font-bold text-slate-600">{courier?.name || (o.deliveryType === 'pickup' ? 'استلام' : 'دخلي')}</span>
+                           {o.courier_tracking_code && (
+                             <button 
+                               onClick={() => { navigator.clipboard.writeText(o.courier_tracking_code!); showToast('تم النسخ', 'success'); }}
+                               className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                             >
+                               {o.courier_tracking_code}
+                             </button>
+                           )}
+                        </div>
+                        {vanexBadge && vanexBadge.label !== '🚛 أُرسلت' && (
+                          <div className={`flex items-center gap-1.5 ${vanexBadge.bg} ${vanexBadge.text} text-[10px] px-2 py-0.5 rounded-md w-fit font-bold`}>
+                            <RefreshCw size={10} className={trackingOrderId === o.id ? 'animate-spin' : ''} onClick={() => handleTrackOrder(o.id)} />
+                            {vanexBadge.label}
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-6 py-4 text-gray-500 text-xs">
-                      {formatDate(o.createdAt)}
+
+                    {/* 5. المالية */}
+                    <td className="px-6 py-3">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-black text-slate-900">{formatCurrency(o.total)}</span>
+                        {o.discount > 0 && <span className="text-[10px] font-bold text-rose-500">خصم {formatCurrency(o.discount)}</span>}
+                      </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-2 items-center justify-center">
-                        {(() => {
-                          const courier = myCouriers.find(c => c.id === o.courierCompanyId);
-                          const isSentToVanex = !!(o.vanex_package_id || o.vanex_package_code);
-                          
-                          // ═══ Dedup Guard في الواجهة: يظهر حصراً إذا لم تُرسل مسبقاً ═══
-                          const isApiOrder = 
-                            o.status === 'pending' && 
-                            o.deliveryType === 'courier_company' && 
-                            !!courier?.isApiConnected &&
-                            !isSentToVanex;
 
-                          // 🗑️ الحذف متاح فقط إذا: الحالة pending + لم ترسل لفانكس
-                          const canDelete = o.status === 'pending' && !isSentToVanex;
+                    {/* 6. التاريخ */}
+                    <td className="px-6 py-3">
+                      <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap">{formatDate(o.createdAt)}</span>
+                    </td>
 
-                          // ═══ التحكم بأزرار الحالة حسب الارتباط بفانكس ═══
-                          let displayedActions = actions;
-                          if (isSentToVanex) {
-                            if (o.status === 'pending') {
-                              displayedActions = [
-                                { status: 'cancelled', label: 'إلغاء الطلبية', icon: <Ban size={14} className="mb-px" />, bg: 'bg-white', text: 'text-red-600 border border-red-200 shadow-sm w-full', hover: 'hover:bg-red-50 hover:border-red-300' }
-                              ];
-                            } else {
-                              displayedActions = [];
-                            }
-                          }
+                    {/* 7. الإجراءات */}
+                    <td className="px-6 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        {/* تعديل */}
+                        {o.status === 'pending' && !isSentToVanex && (
+                          <button 
+                            onClick={() => handleEditOrder(o)}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                            title="تعديل الشحنة"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        )}
+                        
+                        {/* إرسال لفانكس */}
+                        {(o.status === 'pending' && !!courier?.isApiConnected && !isSentToVanex) && (
+                          <button 
+                             disabled={sendingToVanex === o.id}
+                             onClick={async () => {
+                               setSendingToVanex(o.id);
+                               const res = await sendOrderToVanex(o.id);
+                               if (res.success) {
+                                 showToast('تم الإرسال بنجاح', 'success');
+                                 queryClient.invalidateQueries({ queryKey: ['orders', tid] });
+                               } else {
+                                 showToast(res.error || 'فشل الإرسال', 'error');
+                               }
+                               setSendingToVanex(null);
+                             }}
+                             className={`p-2 rounded-xl transition-all shadow-sm ${
+                               sendingToVanex === o.id ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-90 scale-110'
+                             }`}
+                             title="إرسال لشركة التوصيل"
+                          >
+                             {sendingToVanex === o.id ? <RefreshCw size={16} className="animate-spin" /> : <Truck size={16} />}
+                          </button>
+                        )}
 
-                          return (
-                            <div className="flex flex-col gap-2 w-full max-w-[140px] mx-auto opacity-0 animate-fade-in" style={{animationFillMode: 'forwards'}}>
-                              
-                              {/* 1. زر الإرسال الرئيسي لفانكس (قبل الإرسال) */}
-                              {isApiOrder && (
-                                <button
-                                  disabled={sendingToVanex === o.id}
-                                  onClick={async () => {
-                                    setSendingToVanex(o.id);
-                                    try {
-                                      const courierName = courier?.name ?? 'شركة التوصيل';
-                                      const result = await sendOrderToVanex(o.id);
-                                      if (result.success) {
-                                        showToast(`✅ تم إرسال ${o.orderNumber} لـ ${courierName} بنجاح`, 'success');
-                                        queryClient.invalidateQueries({ queryKey: ['orders', tid] });
-                                      } else {
-                                        showToast(result.error || 'فشل إرسال الطلبية', 'error');
-                                      }
-                                    } finally {
-                                      setSendingToVanex(null);
-                                    }
-                                  }}
-                                  className={`relative w-full overflow-hidden flex items-center justify-center gap-1.5 text-[11px] px-3 py-2 rounded-xl font-black transition-all duration-300 ${
-                                    sendingToVanex === o.id
-                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                                      : 'bg-gradient-to-r from-bunyan-600 to-bunyan-500 text-white shadow-md shadow-bunyan-500/20 hover:shadow-lg hover:-translate-y-0.5'
-                                  }`}
-                                >
-                                  {sendingToVanex === o.id ? (
-                                    <><span className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" /> جاري الإرسال...</>
-                                  ) : (
-                                    <><Truck size={14} className="mb-px" /> إرسال للتوصيل</>
-                                  )}
-                                </button>
-                              )}
+                        {/* العمليات المتاحة (Change Status) */}
+                        {!isSentToVanex && NEXT_STATUSES[o.status]?.length > 0 && (
+                          <div className="flex items-center gap-1 ml-2 border-r pr-2 border-slate-100">
+                             {NEXT_STATUSES[o.status].slice(0, 1).map(action => (
+                               <button 
+                                 key={action.status}
+                                 onClick={() => handleStatusChange(o.id, action.status)}
+                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black tracking-wide transition-all ${action.bg} ${action.text} hover:opacity-80 active:scale-95`}
+                               >
+                                 {action.icon}
+                                 {action.label}
+                               </button>
+                             ))}
+                          </div>
+                        )}
 
-                              {/* 2. شارة النظام الذكي (تمت إزالتها بناءً على طلب المستخدم للتبسيط) */}
-
-                              {/* 3. أزرار العمليات الديناميكية */}
-                              {(!isApiOrder && displayedActions.length > 0) && (
-                                <div className="flex flex-wrap gap-1.5 justify-center">
-                                  {displayedActions.map((a) => (
-                                    <button 
-                                      key={a.status} 
-                                      onClick={() => handleStatusChange(o.id, a.status)}
-                                      className={`flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${a.bg} ${a.text} ${a.hover} ${a.text.includes('border') ? '' : 'border border-transparent hover:scale-105 active:scale-95'}`}
-                                      title={`تغيير الحالة إلى ${a.label}`}
-                                    >
-                                      {a.icon}
-                                      <span>{a.label}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* 4. حالة السكون التام (مكتملة / بدون أكشن) */}
-                              {!isApiOrder && displayedActions.length === 0 && o.status !== 'processing' && !isSentToVanex && (
-                                <span className="text-[11px] font-bold text-gray-400 px-3 py-1.5 bg-gray-50/80 border border-gray-100 rounded-lg w-full text-center tracking-wide">
-                                  مُكتمل الإجراء
-                                </span>
-                              )}
-
-                              {/* 5. العمليات الأمنية: تعديل / حذف */}
-                              {canDelete && (
-                                <div className="flex gap-1.5 w-full">
-                                  {/* زر التعديل */}
-                                  <button
-                                    onClick={() => handleEditOrder(o)}
-                                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border bg-white text-gray-400 border-gray-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200"
-                                    title="تعديل بيانات الطلبية"
-                                  >
-                                    <Edit2 size={12} />
-                                    <span>تعديل</span>
-                                  </button>
-
-                                  {/* زر الحذف */}
-                                  <button
-                                    disabled={deletingOrderId === o.id}
-                                    onClick={() => {
-                                      if (confirm(`هل أنت متأكد من حذف الطلبية ${o.orderNumber} نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
-                                        handleDeleteOrder(o.id);
-                                      }
-                                    }}
-                                    className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
-                                      deletingOrderId === o.id
-                                        ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
-                                        : 'bg-white text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
-                                    }`}
-                                    title="حذف الطلبية نهائياً"
-                                  >
-                                    {deletingOrderId === o.id ? (
-                                      <span className="w-3 h-3 border-2 border-gray-300 border-t-gray-400 rounded-full animate-spin" />
-                                    ) : (
-                                      <Trash2 size={12} />
-                                    )}
-                                    <span>حذف</span>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        {/* حذف */}
+                        {o.status === 'pending' && !isSentToVanex && (
+                          <button 
+                            onClick={() => { if(confirm('متأكد؟')) handleDeleteOrder(o.id); }}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                            title="حذف نهائي"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1046,665 +991,497 @@ export default function OrdersPage() {
               })}
             </tbody>
           </table>
-        </div>
-        
-        {filtered.length === 0 && !isOrdersLoading && (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <ShoppingCart size={28} className="text-gray-400" />
+
+          {filtered.length === 0 && !isOrdersLoading && (
+            <div className="flex flex-col items-center justify-center py-20 bg-slate-50/30">
+               <div className="p-6 bg-white rounded-full shadow-inner mb-4">
+                  <ShoppingCart size={48} className="text-slate-200" />
+               </div>
+               <h3 className="text-lg font-black text-slate-900">لا توجد نتائج</h3>
+               <p className="text-slate-500 font-medium mt-1">جرب استخدام كلمات بحث أخرى أو تعديل الفلاتر</p>
             </div>
-            <p className="text-base font-bold text-gray-900 mb-1">لا توجد طلبيات مطابقة</p>
-            <p className="text-sm text-gray-500">جرب تعديل الفلاتر أو إضافتها.</p>
-          </div>
-        )}
-        
-        {isOrdersLoading && (
-          <div className="text-center py-16">
-            <div className="w-12 h-12 border-4 border-bunyan-100 border-t-bunyan-600 rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-sm text-gray-500 font-bold">جاري تحميل الطلبيات...</p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ═══ SlideOver: إنشاء / تعديل طلبية ═══ */}
       <SlideOver 
         isOpen={slideOpen} 
-        onClose={() => { setSlideOpen(false); setEditingOrder(null); }} 
+        onClose={() => { setSlideOpen(false); setEditingOrder(null); setShowProductList(false); setShowPhone2(false); }} 
         title={editingOrder ? `تعديل الطلبية ${editingOrder.orderNumber}` : "إنشاء طلبية جديدة (نظام نقطة البيع)"} 
-        width="w-full sm:max-w-6xl"
+        width="w-full sm:max-w-5xl"
+        darkMode={true}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full pb-20">
-          
-          {/* 1. القسم الأيمن: المنتجات المتوفرة */}
-          <div className="lg:col-span-4 xl:col-span-5 flex flex-col gap-4 border-l border-gray-100 p-4 bg-gray-50/50 h-[calc(100vh-140px)] overflow-y-auto">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <Package size={16} className="text-bunyan-600" />
-              قائمة المنتجات المتاحة
-            </h3>
-            <div className="relative">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-              <input type="text" placeholder="بحث بالاسم أو الكود..." 
-                value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                className="w-full pl-3 pr-9 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-bunyan-500 shadow-sm transition-all" />
-            </div>
-            
-            <div className="grid grid-cols-1 gap-3 mt-2">
-              {myProducts
-                .filter(p => p.quantity > 0 && p.isActive && (p.name.includes(productSearch) || String(p.itemCode).includes(productSearch)))
-                .map(p => (
-                  <div key={p.id} className="bg-white p-3 border border-gray-100 rounded-2xl flex items-center justify-between shadow-sm hover:border-bunyan-300 hover:shadow-md transition-all group">
-                    <div>
-                      <p className="text-sm font-bold text-gray-900 group-hover:text-bunyan-700 transition-colors">{p.name}</p>
-                      <p className="text-xs text-gray-500 font-mono mt-0.5">BN{p.itemCode} • متاح {p.quantity}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <p className="text-sm font-black font-currency text-bunyan-600">{formatCurrency(p.sellingPrice)}</p>
-                      <button onClick={() => setOrderItems([{ productId: p.id, quantity: 1, variantSize: '' }, ...orderItems])}
-                        className="p-1.5 bg-bunyan-50 text-bunyan-700 rounded-lg text-xs font-bold hover:bg-bunyan-600 hover:text-white transition-colors border border-bunyan-100" title="إضافة للسلة">
-                        <Plus size={14} />
-                      </button>
-                    </div>
-                  </div>
-              ))}
-              {myProducts.filter(p => p.quantity > 0 && p.isActive && (p.name.includes(productSearch) || String(p.itemCode).includes(productSearch))).length === 0 && (
-                <div className="text-center py-10">
-                   <Package size={32} className="mx-auto text-gray-300 mb-2"/>
-                   <p className="text-sm text-gray-500 font-bold">لا توجد منتجات مطابقة للبحث</p>
+        <div className="flex flex-col h-full">
+          {/* ⚡ مؤشر الخطوات - Steps Indicator v5.0 */}
+          <div className="flex items-center gap-4 px-8 py-6 border-b border-white/5 bg-white/5 backdrop-blur-xl sticky top-0 z-20">
+            {[
+              { id: 1, label: 'المنتجات والزبون', icon: <ShoppingCart size={18} /> },
+              { id: 2, label: 'التوصيل والمالية', icon: <Truck size={18} /> }
+            ].map((s) => (
+              <div key={s.id} className="flex items-center gap-3">
+                <div className={`flex items-center justify-center w-10 h-10 rounded-2xl transition-all duration-500 ${
+                  step === s.id 
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 scale-110' 
+                    : step > s.id ? 'bg-emerald-500 text-white' : 'bg-white/10 text-slate-400'
+                }`}>
+                  {step > s.id ? <CheckCircle2 size={20} /> : s.icon}
                 </div>
-              )}
-            </div>
+                <div className="hidden md:flex flex-col items-start pr-1">
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${step === s.id ? 'text-indigo-400' : 'text-slate-500'}`}>الخطوة 0{s.id}</span>
+                  <span className={`text-sm font-bold ${step === s.id ? 'text-white' : 'text-slate-500'}`}>{s.label}</span>
+                </div>
+                {s.id === 1 && <div className="w-12 h-[2px] mx-4 bg-white/5 rounded-full" />}
+              </div>
+            ))}
+            
+            <button 
+              onClick={() => { setSlideOpen(false); setStep(1); }}
+              className="mr-auto p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-colors"
+            >
+              <X size={20} />
+            </button>
           </div>
 
-          {/* 2. القسم الأيسر: بيانات الزبون + السلة + التوصيل + الملخص (7 أعمدة) */}
-          <div className="lg:col-span-8 xl:col-span-7 flex flex-col gap-6 h-[calc(100vh-140px)] overflow-y-auto pr-2 pb-10 mt-4 lg:mt-0">
-            
-            {/* أ. السلة */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <ShoppingCart size={18} className="text-bunyan-600" />
-                  سلة المشتريات
-                </h3>
-                <span className="bg-bunyan-100 text-bunyan-800 text-xs font-bold px-2.5 py-1 rounded-full">{orderItems.length} عناصر</span>
-              </div>
-              <div className="space-y-3">
-                {orderItems.map((item, idx) => {
-                  const selectedProduct = myProducts.find((p) => p.id === item.productId);
-                  return (
-                    <div key={idx} className="flex flex-col sm:flex-row gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100 items-start sm:items-center">
-                      <div className="flex-1 w-full flex items-center gap-2 truncate">
-                         {/* Optional small thumb can go here */}
-                         <p className="text-sm font-bold text-gray-800 truncate">{selectedProduct?.name || 'لم يحدد'}</p>
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            {step === 1 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-left-4 duration-500">
+                {/* 🛒 اختيار المنتجات (Toggleable) */}
+                {showProductList && (
+                  <div className="lg:col-span-4 space-y-4">
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-5 backdrop-blur-md">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-black text-white/90 flex items-center gap-2">
+                          <Package size={16} className="text-indigo-400" />
+                          الكتالوج
+                        </h3>
+                        <button onClick={() => setShowProductList(false)} className="text-slate-400 hover:text-white transition-colors">
+                          <X size={16} />
+                        </button>
                       </div>
-                      {selectedProduct?.productType === 'clothing' && (
-                        <div className="w-full sm:w-28">
-                          <select value={item.variantSize || ''} onChange={(e) => updateItem(idx, 'variantSize', e.target.value)}
-                            className="w-full px-2 py-1 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:border-bunyan-500">
-                            <option value="">المقاس...</option>
-                            {selectedProduct.variants?.filter(v => v.quantity > 0).map(v => (
-                              <option key={v.size} value={v.size}>{v.size} ({v.quantity})</option>
+                      
+                      <div className="relative group mb-3">
+                        <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
+                        <input 
+                          type="text" 
+                          placeholder="بحث..." 
+                          value={productSearch} 
+                          onChange={e => setProductSearch(e.target.value)}
+                          className="w-full pr-10 pl-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:bg-white/10 transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                        {myProducts
+                          .filter(p => p.quantity > 0 && p.isActive && (p.name.includes(productSearch) || String(p.itemCode).includes(productSearch)))
+                          .map(p => (
+                            <div key={p.id} className="p-3 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-between hover:bg-white/10 hover:border-indigo-500/30 transition-all cursor-pointer group"
+                                onClick={() => setOrderItems([{ productId: p.id, quantity: 1, variantSize: '' }, ...orderItems])}
+                                title={p.name}>
+                              <div className="flex-1 min-w-0 pr-2">
+                                 <p className="text-xs font-bold text-white group-hover:text-indigo-400 truncate">{p.name}</p>
+                                 <span className="text-[9px] text-slate-500 font-mono">BN{p.itemCode} • متاح {p.quantity}</span>
+                              </div>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0 pl-2 border-l border-white/5">
+                                 <span className="text-[11px] font-black text-white">{formatCurrency(p.sellingPrice)}</span>
+                                 <div className="w-5 h-5 rounded-md bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                    <Plus size={12} />
+                                 </div>
+                              </div>
+                            </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 🛍️ سلة الطلبية وبيانات الزبون */}
+                <div className={`${showProductList ? 'lg:col-span-8' : 'lg:col-span-12 max-w-4xl mx-auto w-full'} flex flex-col gap-6`}>
+                  {/* السلة */}
+                  <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
+                     <div className="flex items-center justify-between mb-5 pb-5 border-b border-white/5">
+                        <div className="flex items-center gap-4">
+                           <h3 className="text-base font-black text-white flex items-center gap-2">
+                              <ShoppingCart size={18} className="text-indigo-400" />
+                              سلة المشتريات
+                           </h3>
+                           <span className="px-3 py-0.5 bg-indigo-600/20 text-indigo-400 text-[10px] font-black rounded-full border border-indigo-500/20">
+                              {orderItems.length}
+                           </span>
+                        </div>
+                        
+                        {!showProductList && (
+                          <button 
+                            onClick={() => setShowProductList(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                          >
+                            <Plus size={14} /> إدراج منتجات
+                          </button>
+                        )}
+                     </div>
+                    <div className="space-y-4">
+                      {orderItems.map((item, idx) => {
+                        const product = myProducts.find(p => p.id === item.productId);
+                        return (
+                          <div key={idx} className="group relative flex items-center gap-4 bg-white/5 border border-white/5 p-4 rounded-3xl hover:bg-white/10 transition-all">
+                            <div className="flex-1 min-w-0">
+                               <p className="text-sm font-bold text-white truncate">{product?.name || 'منتج غير معروف'}</p>
+                               <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] font-bold text-slate-500 bg-white/5 px-1.5 py-0.5 rounded-md">
+                                    {formatCurrency(product?.sellingPrice || 0)}
+                                  </span>
+                                  {product?.productType === 'clothing' && (
+                                     <select 
+                                       value={item.variantSize || ''} 
+                                       onChange={(e) => updateItem(idx, 'variantSize', e.target.value)}
+                                       className="bg-transparent text-[10px] font-bold text-indigo-400 border-none focus:ring-0 p-0"
+                                     >
+                                        <option value="" className="bg-slate-900">المقاس...</option>
+                                        {product.variants?.map(v => (
+                                          <option key={v.size} value={v.size} className="bg-slate-900">{v.size}</option>
+                                        ))}
+                                     </select>
+                                  )}
+                               </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4">
+                               <div className="flex items-center bg-black/40 rounded-xl border border-white/5">
+                                  <button onClick={() => updateItem(idx, 'quantity', Math.max(1, item.quantity - 1))} className="p-2 text-slate-400 hover:text-white transition-colors">-</button>
+                                  <span className="w-8 text-center text-xs font-black text-white">{item.quantity}</span>
+                                  <button onClick={() => updateItem(idx, 'quantity', item.quantity + 1)} className="p-2 text-slate-400 hover:text-white transition-colors">+</button>
+                               </div>
+                               <span className="text-sm font-black text-white min-w-[60px] text-left">{formatCurrency((product?.sellingPrice || 0) * item.quantity)}</span>
+                               <button onClick={() => removeItem(idx)} className="p-2 text-rose-500/50 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all">
+                                  <Trash2 size={16} />
+                                </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {orderItems.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-12 bg-white/5 border-2 border-dashed border-white/5 rounded-[2rem]">
+                          <ShoppingCart size={40} className="text-white/10 mb-4" />
+                          <p className="text-sm font-bold text-slate-500">السلة فارغة، أضف بعض المنتجات!</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* بيانات الزبون */}
+                  <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
+                    <h3 className="text-base font-black text-white flex items-center gap-2 mb-5">
+                       <User size={18} className="text-indigo-400" />
+                       بيانات الزبون
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pr-1 flex items-center justify-between shadow-sm">
+                            <span>رقم الهاتف *</span>
+                            {!showPhone2 && (
+                              <button onClick={() => setShowPhone2(true)} className="text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1">
+                                <Plus size={10} /> إضافي
+                              </button>
+                            )}
+                          </label>
+                          <div className="flex gap-2">
+                            <input 
+                              type="tel" 
+                              value={newOrder.customerPhone} 
+                              onChange={(e) => handlePhoneChange(e.target.value)}
+                              maxLength={10}
+                              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-mono" 
+                              placeholder="09XXXXXXXX" 
+                              dir="ltr"
+                            />
+                            {showPhone2 && (
+                              <div className="relative w-full animate-in fade-in slide-in-from-right-2">
+                                <input 
+                                  type="tel" 
+                                  value={newOrder.customerPhone2 || ''} 
+                                  onChange={(e) => setNewOrder({ ...newOrder, customerPhone2: e.target.value })}
+                                  maxLength={10}
+                                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-mono pr-8" 
+                                  placeholder="احتياطي" 
+                                  dir="ltr"
+                                />
+                                <button onClick={() => { setShowPhone2(false); setNewOrder({ ...newOrder, customerPhone2: '' }); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-rose-400 transition-colors">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                       </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pr-1">اسم الزبون *</label>
+                          <input 
+                            type="text" 
+                            value={newOrder.customerName} 
+                            onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })}
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-bold" 
+                            placeholder="أدخل اسم الزبون..."
+                          />
+                       </div>
+                    </div>
+
+                    <div className="mt-5 pt-5 border-t border-white/5">
+                       <button 
+                         onClick={() => setNewOrder(p => ({ ...p, showDimensions: !p.showDimensions }))}
+                         className="flex items-center gap-2 text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
+                       >
+                         {newOrder.showDimensions ? '- إخفاء تفاصيل الشحنة الكبيرة' : '+ هل الشحنة كبيرة؟ أضف الأبعاد'}
+                       </button>
+
+                       {newOrder.showDimensions && (
+                         <div className="grid grid-cols-3 gap-4 mt-4 animate-in fade-in zoom-in-95 duration-300">
+                            {['Length', 'Width', 'Height'].map((dim) => (
+                              <div key={dim} className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-500 uppercase">{dim} (cm)</label>
+                                <input 
+                                  type="number" 
+                                  value={newOrder[`dim${dim}` as keyof typeof newOrder] as string} 
+                                  onChange={e => setNewOrder({ ...newOrder, [`dim${dim}`]: e.target.value })}
+                                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500" 
+                                  placeholder="0"
+                                />
+                              </div>
                             ))}
+                         </div>
+                       )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-right-4 duration-500 pb-24">
+                {/* 🚚 خيارات التوصيل */}
+                <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 backdrop-blur-md">
+                   <h3 className="text-lg font-black text-white flex items-center gap-3 mb-6">
+                      <Truck size={22} className="text-indigo-400" />
+                      خيارات التوصيل والوجهة
+                   </h3>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* نوع التوصيل */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest block pr-1">نوع التوصيل</label>
+                        <select 
+                          value={newOrder.deliveryType} 
+                          onChange={(e) => setNewOrder({ ...newOrder, deliveryType: e.target.value as Order['deliveryType'], courierId: '' })}
+                          className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all appearance-none"
+                        >
+                          <option value="courier_company" className="bg-slate-900">شحن عبر شركة توصيل</option>
+                          <option value="internal" className="bg-slate-900">توصيل داخلي / مندوب</option>
+                          <option value="pickup" className="bg-slate-900">استلام من المحل</option>
+                        </select>
+                      </div>
+
+                      {/* الشركة */}
+                      {newOrder.deliveryType === 'courier_company' && (
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest block pr-1">شركة التوصيل</label>
+                          <select 
+                            value={newOrder.courierId} 
+                            onChange={(e) => setNewOrder({ ...newOrder, courierId: e.target.value, customerCity: '' })}
+                            className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all appearance-none"
+                          >
+                             <option value="" className="bg-slate-900">اختر الشركة...</option>
+                             {myCouriers.filter(c => c.isActive).map(c => (
+                               <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+                             ))}
                           </select>
                         </div>
                       )}
-                      <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                        <div className="w-20">
-                          <input type="number" min={1} 
-                            max={selectedProduct?.productType === 'clothing' && item.variantSize 
-                              ? (selectedProduct.variants?.find(v => v.size === item.variantSize)?.quantity || 9999) 
-                              : (selectedProduct?.quantity || 9999)} 
-                            value={item.quantity}
-                            onChange={(e) => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                            className="w-full px-2 py-1 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:border-bunyan-500" placeholder="الكمية" />
+                      
+                      {/* وجهة التوصيل المدعومة ومناطق بنيان */}
+                      {newOrder.deliveryType === 'courier_company' && newOrder.courierId && (
+                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
+                           <div className="space-y-1.5">
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pr-1">المدينة (من نظام الشركة)</label>
+                             <div className="relative group">
+                                <input 
+                                  type="text"
+                                  value={newOrder.customerCity}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    let courierCityId: number | undefined = undefined;
+                                    const courier = myCouriers.find(c => c.id === newOrder.courierId);
+                                    if (courier?.isApiConnected) {
+                                      const cities = useDataStore.getState().bunyanCities;
+                                      const exactMapping = shippingCityMappings.find(m => (cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName) === val);
+                                      if (exactMapping) { courierCityId = exactMapping.provider_city_id; fetchVanexSubCities(courierCityId, newOrder.courierId); }
+                                    }
+                                    setNewOrder({ ...newOrder, customerCity: val, courierCityId, courierSubCityId: undefined, customerAddress: '' });
+                                  }}
+                                  onFocus={() => setCityFocused(true)}
+                                  onBlur={() => setTimeout(() => setCityFocused(false), 200)}
+                                  placeholder="ابحث عن المدينة..."
+                                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-bold"
+                                />
+                                {/* City Dropdown framework */}
+                                {cityFocused && newOrder.customerCity && (
+                                   <div className="absolute top-full left-0 right-0 mt-2 bg-[#1A1B2E] border border-white/10 rounded-2xl shadow-2xl z-50 max-h-60 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                                      {shippingCityMappings.filter(m => (m.bunyanCityName || '').toLowerCase().includes(newOrder.customerCity.toLowerCase())).map(m => (
+                                        <button 
+                                          key={m.id}
+                                          type="button"
+                                          onClick={() => {
+                                            const cityName = m.bunyanCityName || '';
+                                            setNewOrder({ ...newOrder, customerCity: cityName, courierCityId: m.provider_city_id, customerAddress: '' });
+                                            fetchVanexSubCities(m.provider_city_id, newOrder.courierId);
+                                            setCityFocused(false);
+                                          }}
+                                          className="w-full text-right px-4 py-3 text-sm text-white hover:bg-white/10 rounded-xl transition-all font-bold flex items-center justify-between group"
+                                        >
+                                          <span>{m.bunyanCityName}</span>
+                                          <ChevronLeft size={14} className="text-slate-600 group-hover:text-indigo-400 transform group-hover:translate-x-1 transition-all" />
+                                        </button>
+                                      ))}
+                                      {shippingCityMappings.filter(m => (m.bunyanCityName || '').toLowerCase().includes(newOrder.customerCity.toLowerCase())).length === 0 && (
+                                        <p className="p-4 text-xs text-slate-500 text-center">لم يتم العثور على مدن مطابقة</p>
+                                      )}
+                                   </div>
+                                 )}
+                             </div>
+                           </div>
+
+                           <div className="space-y-1.5">
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pr-1">المنطقة (بنيان)</label>
+                             <select
+                               value={newOrder.customerAddress || ''}
+                               onChange={(e) => setNewOrder({ ...newOrder, customerAddress: e.target.value })}
+                               disabled={!newOrder.customerCity}
+                               className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-bold appearance-none disabled:opacity-50"
+                             >
+                                <option value="" className="bg-slate-900">اختر المنطقة بناءً على المدينة...</option>
+                                {(() => {
+                                  const bunyanCities = useDataStore.getState().bunyanCities;
+                                  const matchedCityId = bunyanCities.find(c => c.name_ar === newOrder.customerCity)?.id;
+                                  if (!matchedCityId) return null;
+                                  
+                                  const bunyanRegions = useDataStore.getState().bunyanRegions;
+                                  return bunyanRegions.filter(r => r.city_id === matchedCityId).map(r => (
+                                    <option key={r.id} value={r.name_ar} className="bg-slate-900">{r.name_ar}</option>
+                                  ));
+                                })()}
+                             </select>
+                           </div>
                         </div>
-                        <div className="w-24 text-center font-bold font-currency text-sm text-gray-900">
-                          {formatCurrency((selectedProduct?.sellingPrice || 0) * item.quantity)}
-                        </div>
-                        <button onClick={() => removeItem(idx)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors ms-auto sm:ms-0" title="إزالة">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {orderItems.length === 0 && (
-                  <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-xl">
-                    <Package size={24} className="text-gray-300 mx-auto mb-2" />
-                    <p className="text-xs font-semibold text-gray-500">سلة المشتريات فارغة. اختر من المنتجات جانبًا.</p>
-                  </div>
-                )}
-              </div>
-            </div>
+                      )}
+                   </div>
+                </div>
 
-            {/* ب. بيانات الزبون */}
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2 pb-3 border-b border-gray-200">
-                👤 بيانات الزبون
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* 1. الهاتف */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">رقم الهاتف (للبحث أو الإضافة) *</label>
-                  <input type="tel" value={newOrder.customerPhone} onChange={(e) => handlePhoneChange(e.target.value)} maxLength={10}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500" placeholder="09XXXXXXXX" dir="ltr" />
-                </div>
-                {/* 2. الاسم */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">اسم الزبون *</label>
-                  <input type="text" value={newOrder.customerName} onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500" placeholder="مثال: أحمد محمد" />
-                </div>
-                {/* 3. المدينة */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">المدينة</label>
-                  <input type="text" value={newOrder.customerCity} onChange={(e) => setNewOrder({ ...newOrder, customerCity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500" placeholder="مثال: طرابلس" />
-                </div>
-                {/* 4. العنوان */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">العنوان بالتفصيل</label>
-                  <input type="text" value={newOrder.customerAddress} onChange={(e) => setNewOrder({ ...newOrder, customerAddress: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500" placeholder="الحي الشارع، أقرب نقطة..." />
-                </div>
-                {/* 5. الهاتف الاحتياطي */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">رقم هاتف احتياطي (اختياري)</label>
-                  <input type="tel" value={newOrder.customerPhone2} onChange={(e) => setNewOrder({ ...newOrder, customerPhone2: e.target.value })} maxLength={10}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-bunyan-500/30 focus:border-bunyan-500" placeholder="09XXXXXXXX" dir="ltr" />
-                </div>
-              </div>
-
-              {/* الأبعاد (شحنة كبيرة) */}
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <button 
-                  type="button" 
-                  onClick={() => setNewOrder(p => ({ ...p, showDimensions: !p.showDimensions }))}
-                  className="text-xs font-bold text-bunyan-600 hover:text-bunyan-700 transition-colors flex items-center gap-1"
-                >
-                  {newOrder.showDimensions ? '- إخفاء الأبعاد' : '+ شحنة كبيرة؟ أضف الأبعاد'}
-                </button>
-                
-                {newOrder.showDimensions && (
-                  <div className="mt-3 animate-fade-in">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-600 mb-1">الطول (cm)</label>
-                        <input type="number" value={newOrder.dimLength} onChange={e => setNewOrder({ ...newOrder, dimLength: e.target.value })} className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-bunyan-500" placeholder="مثال: 40" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-600 mb-1">العرض (cm)</label>
-                        <input type="number" value={newOrder.dimWidth} onChange={e => setNewOrder({ ...newOrder, dimWidth: e.target.value })} className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-bunyan-500" placeholder="مثال: 30" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-600 mb-1">الارتفاع (cm)</label>
-                        <input type="number" value={newOrder.dimHeight} onChange={e => setNewOrder({ ...newOrder, dimHeight: e.target.value })} className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-bunyan-500" placeholder="مثال: 20" />
-                      </div>
-                    </div>
-                    {/* تحذير الأبعاد */}
-                    {(Number(newOrder.dimLength) > 35 || Number(newOrder.dimWidth) > 35 || Number(newOrder.dimHeight) > 35) && (
-                      <p className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 px-2 py-1.5 rounded-lg mt-3 inline-block font-bold shadow-sm animate-fade-in">
-                        ⚠️ شحنة كبيرة — قد تُضاف رسوم إضافية
-                      </p>
-                    )}
-                    {/* النتيجة */}
-                    {vanexDeliveryPrice !== null && (
-                      <div className="mt-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-2 animate-fade-in shadow-sm">
-                        <span className="shrink-0 bg-emerald-100 p-1 rounded-full text-emerald-600">
-                          <CheckCircle2 size={14} />
-                        </span>
-                        <span>تكلفة الشحن التقديرية: {vanexDeliveryPrice} د.ل</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ج. التوصيل والملاحظات */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2 pb-3 border-b border-gray-100">
-                🚚 خيارات التوصيل والملاحظات
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* نوع التوصيل */}
-                <div>
-                  <label className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1.5">نوع التوصيل</label>
-                  <select value={newOrder.deliveryType} onChange={(e) => setNewOrder({ ...newOrder, deliveryType: e.target.value as Order['deliveryType'], courierId: '' })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500">
-                    <option value="courier_company">شحن عبر شركة توصيل</option>
-                    <option value="internal">توصيل داخلي / مندوب خاص</option>
-                    <option value="pickup">استلام من المحل</option>
-                  </select>
-                </div>
-                {/* شركة التوصيل (ان وجد) */}
-                {newOrder.deliveryType === 'courier_company' && (
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1.5">شركة التوصيل المعتمدة</label>
-                    <select value={newOrder.courierId} onChange={(e) => setNewOrder({ ...newOrder, courierId: e.target.value, customerCity: '' })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500">
-                      <option value="">اختر الشركة...</option>
-                      {myCouriers
-                        .filter(c => c.isActive)
-                        .map(c => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} — أساسي: {formatCurrency(c.defaultDeliveryFee || 0)}{c.isApiConnected ? ' 🟢' : ''}
-                          </option>
-                        ))
-                      }
-                    </select>
-                  </div>
-                )}
-                
-                {/* مدينة التوصيل — Smart City Autocomplete */}
-                {newOrder.deliveryType === 'courier_company' && newOrder.courierId && (
-                  <div className="sm:col-span-2 relative">
-                    <label className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1.5">المدينة المعتمدة للشركة المختارة</label>
-                    <input
-                      type="text"
-                      value={newOrder.customerCity}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        let vanexCityId: number | undefined = undefined;
-                        let vanexSubCityId = newOrder.vanexSubCityId;
-
-                        const courier = myCouriers.find(c => c.id === newOrder.courierId);
-                        if (courier?.isApiConnected) {
-                          const cities = useDataStore.getState().bunyanCities;
-                          const exactMapping = shippingCityMappings.find(m => {
-                             const bName = cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName;
-                             return m.is_active && bName === val;
-                          });
-                          if (exactMapping) {
-                            vanexCityId = exactMapping.provider_city_id;
-                            if (newOrder.vanexCityId !== vanexCityId) {
-                               // Reset subcity if city changed
-                               vanexSubCityId = undefined;
-                            }
-                            fetchVanexSubCities(exactMapping.provider_city_id, newOrder.courierId);
-                          } else {
-                             // Not an exact match anymore
-                             vanexSubCityId = undefined;
-                          }
-                        } else {
-                          vanexSubCityId = undefined;
-                        }
-
-                        setNewOrder({ ...newOrder, customerCity: val, vanexCityId, vanexSubCityId });
-                      }}
-                      onFocus={() => setCityFocused(true)}
-                      onBlur={() => setTimeout(() => setCityFocused(false), 200)}
-                      placeholder="ابدأ بكتابة اسم المدينة (عربي أو إنجليزي)..."
-                      autoComplete="off"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500 focus:ring-2 focus:ring-bunyan-500/20"
-                    />
-                    {/* Autocomplete dropdown */}
-                    {cityFocused && (() => {
-                      const courier = myCouriers.find(c => c.id === newOrder.courierId);
-                      const courierCities = courier?.cities || [];
-                      const q = newOrder.customerCity.toLowerCase();
+                {/* 💳 المالية والملاحظات */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                   {/* الملخص المالي */}
+                   <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md space-y-5">
+                      <h3 className="text-base font-black text-white flex items-center gap-2">
+                         <CreditCard size={18} className="text-indigo-400" />
+                         تفاصيل التحصيل
+                      </h3>
                       
-                      const isApiConnected = courier?.isApiConnected;
-                      const cities = useDataStore.getState().bunyanCities;
-                      
-                      let mappings = shippingCityMappings.filter(m => m.is_active).map(m => ({
-                         ...m,
-                         _resolvedBunyanName: cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName || '',
-                         _resolvedProviderName: m.providerCityName || ''
-                      }));
+                      <div className="space-y-3">
+                         <div className="flex justify-between items-center bg-black/20 p-3.5 rounded-2xl border border-white/5">
+                            <span className="text-xs font-bold text-slate-400">مجموع المنتجات</span>
+                            <span className="text-base font-black text-white">{formatCurrency(orderCalculations.subtotal)}</span>
+                         </div>
+                         
+                         <div className="flex justify-between items-center bg-black/20 p-3.5 rounded-2xl border border-white/5">
+                            <span className="text-xs font-bold text-slate-400">الخصم المباشر (د.ل)</span>
+                            <input 
+                              type="number" 
+                              value={newOrder.discount || ''} 
+                              onChange={(e) => setNewOrder({ ...newOrder, discount: Number(e.target.value) })}
+                              className="w-20 bg-white/5 border border-white/10 rounded-xl px-2 py-1 text-center text-xs text-white font-black"
+                              placeholder="0"
+                            />
+                         </div>
 
-                      if (isApiConnected) {
-                        if (q) {
-                          mappings = mappings.filter(m => m._resolvedBunyanName.includes(newOrder.customerCity) || m._resolvedProviderName.toLowerCase().includes(q));
-                        }
-                      } else {
-                        mappings = mappings.filter(m =>
-                          courierCities.some(cc => cc === m._resolvedBunyanName) &&
-                          (!q || m._resolvedBunyanName.includes(newOrder.customerCity) || m._resolvedProviderName.toLowerCase().includes(q))
-                        );
-                      }
-                      
-                      // Also include courier cities that don't have mappings ONLY IF not API connected
-                      const unmappedCities = isApiConnected ? [] : courierCities.filter(
-                        cc => (!q || cc.includes(newOrder.customerCity)) && !mappings.some(m => m._resolvedBunyanName === cc)
-                      );
-                      
-                      const exactMatchApi = isApiConnected && mappings.some(m => m._resolvedBunyanName === newOrder.customerCity);
-                      const exactMatchNonApi = !isApiConnected && (courierCities.includes(newOrder.customerCity) || mappings.some(m => m._resolvedBunyanName === newOrder.customerCity));
-                      const exactMatch = isApiConnected ? exactMatchApi : exactMatchNonApi;
-                      
-                      if ((exactMatch && q === newOrder.customerCity) || (mappings.length === 0 && unmappedCities.length === 0)) return null;
-                      return (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
-                          {mappings.map(m => (
-                            <button key={m.id} type="button"
-                              onClick={() => {
-                                setNewOrder({ ...newOrder, customerCity: m._resolvedBunyanName, vanexCityId: m.provider_city_id, vanexSubCityId: undefined });
-                                if (isApiConnected) {
-                                  fetchVanexSubCities(m.provider_city_id, newOrder.courierId);
-                                }
-                              }}
-                              className="w-full text-right px-3 py-2 hover:bg-bunyan-50 text-sm flex justify-between items-center transition-colors border-b border-gray-50 last:border-0">
-                              <span className="font-bold text-gray-800">{m._resolvedBunyanName}</span>
-                              <span className="text-[10px] text-gray-400 font-mono">{m._resolvedProviderName}</span>
-                            </button>
-                          ))}
-                          {unmappedCities.map(city => (
-                            <button key={city} type="button"
-                              onClick={() => setNewOrder({ ...newOrder, customerCity: city, vanexCityId: undefined, vanexSubCityId: undefined })}
-                              className="w-full text-right px-3 py-2 hover:bg-gray-50 text-sm font-bold text-gray-700 transition-colors border-b border-gray-50 last:border-0">
-                              {city}
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                    
-                    {isVanexCitySuspended && (
-                      <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mt-2 animate-fade-in font-bold flex gap-1.5 items-center shadow-sm">
-                        <span>⚠️</span>
-                        هذه المدينة موقوفة حالياً من فانكس — تواصل مع فانكس أو اختر مدينة أخرى
-                      </p>
-                    )}
-                  </div>
-                )}
+                         <div className="flex justify-between items-center bg-black/20 p-3.5 rounded-2xl border border-white/5">
+                             <div className="flex flex-col">
+                                <span className="text-xs font-bold text-slate-400">التوصيل</span>
+                                {newOrder.priceIncludesDelivery && <span className="text-[9px] text-emerald-400 font-bold mt-0.5">مشمول في الفاتورة</span>}
+                             </div>
+                             <span className="text-xs font-black text-white">
+                                {newOrder.priceIncludesDelivery ? '0 د.ل' : formatCurrency(orderCalculations.deliveryFee)}
+                             </span>
+                         </div>
 
-                {/* Sub-City dropdown */}
-                {(() => {
-                   if (!newOrder.deliveryType || newOrder.deliveryType !== 'courier_company' || !newOrder.vanexCityId) return null;
-                   
-                   const cities = useDataStore.getState().bunyanCities;
-                   const cityMapping = shippingCityMappings.find(m => {
-                      const bName = cities.find(c => c.id === m.bunyan_city_id)?.name_ar || m.bunyanCityName;
-                      return m.is_active && m.provider_city_id === newOrder.vanexCityId && bName === newOrder.customerCity;
-                   });
-                   const myRegions = cityMapping ? shippingRegionMappings.filter(r => r.city_mapping_id === cityMapping.id && r.is_active) : [];
-                   
-                   if (myRegions.length === 0) return null;
-                   
-                   const regionsDb = useDataStore.getState().bunyanRegions;
-
-                   return (
-                      <div className="sm:col-span-2 mt-4 animate-fade-in">
-                        <label className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 border-r-4 border-bunyan-500 pr-3 bg-bunyan-50/50 py-1.5 rounded-l-lg">
-                          المنطقة أو الحي <span className="text-xs font-normal text-gray-500">(مطلوبة لمدينة {newOrder.customerCity})</span>
-                        </label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 p-3 bg-gray-50 rounded-2xl border border-gray-100">
-                          {myRegions.map(region => {
-                            const rName = regionsDb.find(r => r.id === region.bunyan_region_id)?.name_ar || region.bunyanRegionName;
-                            return (
-                                <button
-                                  key={region.id}
-                                  type="button"
-                                  onClick={() => setNewOrder({ ...newOrder, vanexSubCityId: region.provider_region_id })}
-                                  className={`relative flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 border shadow-sm overflow-hidden ${
-                                    newOrder.vanexSubCityId === region.provider_region_id
-                                      ? 'bg-bunyan-600 text-white border-bunyan-600 ring-2 ring-bunyan-600/30 shadow-bunyan-600/20'
-                                      : 'bg-white text-gray-700 border-gray-200 hover:border-bunyan-400 hover:bg-bunyan-50 hover:shadow-md'
-                                  }`}
-                                >
-                                  {newOrder.vanexSubCityId === region.provider_region_id && (
-                                    <div className="absolute inset-0 bg-white/10 w-full h-full" />
-                                  )}
-                                  <span className="relative z-10 text-center leading-snug">{rName}</span>
-                                </button>
-                            );
-                          })}
-                        </div>
+                         <div className="pt-3 border-t border-white/10">
+                            <div className="flex justify-between items-center">
+                               <span className="text-sm font-black text-white">الإجمالي للتحصيل</span>
+                               <span className="text-2xl font-black text-indigo-400 tracking-tighter">{formatCurrency(orderCalculations.total)}</span>
+                            </div>
+                         </div>
                       </div>
-                   );
-                })()}
+                   </div>
 
-                {/* هل السعر شامل التوصيل؟ */}
-                <div className="sm:col-span-2 flex items-center mt-2 bg-gray-50 border border-gray-100 p-3 rounded-lg">
-                   <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-gray-800">
-                     <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                        checked={newOrder.priceIncludesDelivery} onChange={e => setNewOrder({ ...newOrder, priceIncludesDelivery: e.target.checked })} />
-                     هل إجمالي المنتجات والخصم يشمل مصاريف التوصيل؟ (في حالة نعم سيتم تصفير الرسالة من الإجمالي)
-                   </label>
-                </div>
-
-                <div className="sm:col-span-2 mt-2">
-                  <label className="block text-xs font-bold text-gray-700 mb-1.5">ملاحظات الطلبية</label>
-                  <textarea value={newOrder.notes} onChange={(e) => setNewOrder({ ...newOrder, notes: e.target.value })} rows={2}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-bunyan-500"
-                    placeholder="ملاحظات للتحضير أو للكابتن..." />
-                </div>
-              </div>
-            </div>
-
-            {/* خيارات فانكس الخاصة */}
-            {newOrder.deliveryType === 'courier_company' && (myCouriers.find(c => c.id === newOrder.courierId)?.apiProvider?.includes('vanex') || myCouriers.find(c => c.id === newOrder.courierId)?.provider?.includes('vanex') || myCouriers.find(c => c.id === newOrder.courierId)?.name.includes('فانكس')) && (
-              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2 pb-3 border-b border-gray-100">
-                  📦 خيارات فانكس الخاصة
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexMatch} onChange={e => setNewOrder({ ...newOrder, vanexMatch: e.target.checked })} />
-                    مطابقة الشحنة
-                  </label>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                      <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                        checked={newOrder.vanexInsure} onChange={e => setNewOrder({ ...newOrder, vanexInsure: e.target.checked })} />
-                      تأمين الشحنة
-                    </label>
-                    {newOrder.vanexInsure && (
-                      <div className="text-[10px] text-yellow-800 bg-yellow-100/70 border border-yellow-200 px-2 py-1.5 rounded-lg animate-fade-in flex gap-1.5 items-start">
-                        <span className="shrink-0">⚠️</span>
-                        <span>سيتم احتساب قسط التأمين وتفاصيله تلقائياً من فانكس بعد إنشاء الشحنة وستجدها في تفاصيل الطلبية</span>
+                   {/* الملاحظات وإعدادات الدفع */}
+                   <div className="flex flex-col gap-5">
+                      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md flex-1 flex flex-col">
+                         <h3 className="text-xs font-black text-white/90 mb-3 uppercase tracking-widest">توجيهات إضافية</h3>
+                          <textarea 
+                           value={newOrder.notes} 
+                           onChange={(e) => setNewOrder({ ...newOrder, notes: e.target.value })}
+                           className="w-full h-full min-h-[100px] bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                           placeholder="أضف أي ملاحظات هامة للمندوب أو التحضير..."
+                         />
                       </div>
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexInspection} onChange={e => setNewOrder({ ...newOrder, vanexInspection: e.target.checked })} />
-                    مسموح بالفحص والمعاينة
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexNoHeat} onChange={e => setNewOrder({ ...newOrder, vanexNoHeat: e.target.checked })} />
-                    لا تتحمل الحرارة
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexFragile} onChange={e => setNewOrder({ ...newOrder, vanexFragile: e.target.checked })} />
-                    الشحنة قابلة للكسر
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexTryOn} onChange={e => setNewOrder({ ...newOrder, vanexTryOn: e.target.checked })} />
-                    مسموح بالقياس والتجربة
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-                    <input type="checkbox" className="w-4 h-4 text-bunyan-600 border-gray-300 rounded focus:ring-bunyan-500"
-                      checked={newOrder.vanexPartialAllowed} onChange={e => setNewOrder({ ...newOrder, vanexPartialAllowed: e.target.checked })} />
-                    يسمح بالتسليم الجزئي
-                  </label>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1.5">
-                      قيمة الشحن الإضافي على حساب:
-                    </label>
-                    <select value={newOrder.vxExtraShippingCostOn} onChange={(e) => setNewOrder({ ...newOrder, vxExtraShippingCostOn: e.target.value as 'customer' | 'market' })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500">
-                      <option value="market">المتجر</option>
-                      <option value="customer">الزبون</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1.5">
-                      عمولة التحصيل على حساب:
-                    </label>
-                    <select value={newOrder.vxCollectionCommissionOn} onChange={(e) => setNewOrder({ ...newOrder, vxCollectionCommissionOn: e.target.value as 'customer' | 'market' })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-bunyan-500">
-                      <option value="market">المتجر</option>
-                      <option value="customer">الزبون</option>
-                    </select>
-                  </div>
+                      
+                      {/* هل السعر شامل؟ */}
+                      <label className="flex items-center gap-3 p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl cursor-pointer hover:bg-indigo-600/20 transition-all group">
+                         <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${newOrder.priceIncludesDelivery ? 'bg-indigo-600 border-indigo-600' : 'border-white/10 group-hover:border-indigo-500'}`}>
+                            {newOrder.priceIncludesDelivery && <Check size={12} className="text-white" />}
+                         </div>
+                         <input 
+                           type="checkbox" 
+                           className="hidden"
+                           checked={newOrder.priceIncludesDelivery} 
+                           onChange={e => setNewOrder({ ...newOrder, priceIncludesDelivery: e.target.checked })} 
+                         />
+                         <span className="text-xs font-bold text-white/80 leading-snug">السعر يشمل التوصيل مسبقاً (تصفير الرسوم)</span>
+                      </label>
+                   </div>
                 </div>
               </div>
             )}
-
-            {/* ج٢. خيارات الدفع المتقدمة — تظهر فقط عند courier_company */}
-            {newOrder.deliveryType === 'courier_company' && (
-              <div className="rounded-xl border border-bunyan-100 bg-bunyan-50/30 p-4 space-y-4">
-                <h4 className="text-sm font-semibold text-bunyan-700 flex items-center gap-2">
-                  💳 خيارات الدفع والتحصيل
-                </h4>
-
-                {/* سيناريو 1: من يدفع رسوم التوصيل */}
-                <div>
-                  <label className="text-xs text-gray-600 font-medium mb-1 block">
-                    رسوم التوصيل على حساب:
-                  </label>
-                  <div className="flex gap-2">
-                    {[
-                      { value: 'customer', label: 'الزبون' },
-                      { value: 'market',   label: 'المتجر (توصيل مجاني)' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setNewOrder(p => ({ ...p, commissionBy: opt.value as 'customer' | 'market' }))}
-                        className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
-                          newOrder.commissionBy === opt.value
-                            ? 'bg-bunyan-600 text-white border-bunyan-600'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-bunyan-300'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* سيناريو 2: طريقة الدفع */}
-                <div>
-                  <label className="text-xs text-gray-600 font-medium mb-1 block">
-                    طريقة التحصيل من الزبون:
-                  </label>
-                  <div className="flex gap-2">
-                    {[
-                      { value: 'cash',   label: '💵 كاش عند الاستلام' },
-                      { value: 'online', label: '💳 إلكتروني عبر المندوب' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setNewOrder(p => ({ ...p, paymentMethod: opt.value as 'cash' | 'online' }))}
-                        className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
-                          newOrder.paymentMethod === opt.value
-                            ? 'bg-bunyan-600 text-white border-bunyan-600'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-bunyan-300'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {newOrder.paymentMethod === 'online' && (
-                    <p className="text-[11px] text-amber-600 mt-1 bg-amber-50 px-2 py-1 rounded">
-                      ⚠️ تُطبق عمولة 2% على المبلغ المحصّل إلكترونياً وتُخصم في التسويات
-                    </p>
-                  )}
-                </div>
-
-                {/* سيناريو 3: دفع مسبق من الزبون */}
-                <div>
-                  <label className="text-xs text-gray-600 font-medium mb-2 block">
-                    هل دفع الزبون مبلغاً مسبقاً؟
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="prepaidCheck"
-                      checked={newOrder.isPrepaid}
-                      onChange={e => setNewOrder(p => ({ ...p, isPrepaid: e.target.checked, prepaidAmount: e.target.checked ? p.prepaidAmount : 0 }))}
-                      className="rounded border-gray-300"
-                    />
-                    <label htmlFor="prepaidCheck" className="text-xs text-gray-600">
-                      نعم — دفع مسبقاً (الحوالة)
-                    </label>
-                  </div>
-                  {newOrder.isPrepaid && (
-                    <div className="mt-2">
-                      <input
-                        type="number"
-                        placeholder="المبلغ المدفوع مسبقاً بالدينار"
-                        value={newOrder.prepaidAmount || ''}
-                        onChange={e => setNewOrder(p => ({ ...p, prepaidAmount: Number(e.target.value) }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bunyan-500"
-                      />
-                      <p className="text-[11px] text-emerald-600 mt-1 bg-emerald-50 px-2 py-1 rounded">
-                        ✅ سيُرسل للمندوب بقيمة {formatCurrency(Math.max(0, orderCalculations.total - (newOrder.prepaidAmount || 0)))} فقط للتحصيل
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* د. الملخص المالي */}
-            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 border border-gray-700 shadow-xl overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
-              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2 pb-3 border-b border-gray-700/50 relative z-10">
-                🧾 الملخص المالي النهائي
-              </h3>
-              <div className="space-y-3 relative z-10">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300 font-medium">مجموع المنتجات فرعي</span>
-                  <span className="font-bold font-mono text-white">{formatCurrency(orderCalculations.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm items-center">
-                  <span className="text-gray-300 font-medium flex items-center gap-1.5">
-                    الخصم (بالدينار)
-                  </span>
-                  <div className="w-24 relative">
-                    <input type="number" min={0} value={newOrder.discount || ''} onChange={(e) => setNewOrder({ ...newOrder, discount: Number(e.target.value) })}
-                      className="w-full px-2 py-1.5 border border-gray-600 rounded-lg text-sm text-center focus:outline-none focus:border-bunyan-400 focus:ring-2 focus:ring-bunyan-400/20 font-mono text-white font-bold bg-gray-800/50 placeholder-gray-500 transition-colors" placeholder="0 د.ل" />
-                  </div>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-300 font-medium pb-1 w-full flex justify-between border-b border-dashed border-gray-600">
-                    <span>رسوم التوصيل {newOrder.priceIncludesDelivery && <span className="text-emerald-400 text-[10px] mr-2">(مشمولة مسبقاً)</span>}</span>
-                    <span className="font-mono text-white">{newOrder.priceIncludesDelivery ? '0 د.ل' : formatCurrency(orderCalculations.deliveryFee)}</span>
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between text-2xl font-black pt-5 mt-5 relative z-10">
-                <span className="text-white">الإجمالي للزبون</span>
-                <span className="text-emerald-400 font-mono tracking-tight">{formatCurrency(orderCalculations.total)}</span>
-              </div>
-            </div>
           </div>
-          
-          <div className="absolute bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <div className="max-w-6xl mx-auto flex justify-end">
-              <button
-                onClick={handleCreateOrder}
-                disabled={isVanexCitySuspended || isCreatingOrder}
-                className={`w-full sm:w-[300px] py-3 text-white font-bold rounded-xl transition-all text-sm shadow-md flex items-center justify-center gap-2 ${
-                  isVanexCitySuspended
-                    ? 'bg-gray-400 cursor-not-allowed opacity-70'
-                    : isCreatingOrder
-                    ? 'bg-bunyan-400 cursor-not-allowed'
-                    : 'bg-bunyan-600 hover:bg-bunyan-700'
-                }`}
-              >
-                {isCreatingOrder ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    جاري الحفظ...
-                  </>
-                ) : (
-                  editingOrder ? 'حفظ التعديلات' : 'اعتماد وإنشاء الفاتورة'
+
+          {/* 🔘 الأزرار السفلية الثابتة - Control Center v5.0 */}
+          <div className="absolute bottom-0 left-0 right-0 p-6 bg-[#08091A]/80 backdrop-blur-md border-t border-white/5 z-30">
+             <div className="flex items-center justify-between gap-4 max-w-full">
+                {step === 2 && (
+                  <button 
+                    onClick={() => setStep(1)}
+                    className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white text-xs font-bold rounded-xl hover:bg-white/10 transition-all border border-white/5"
+                  >
+                    <ArrowRight size={16} />
+                    السابق
+                  </button>
                 )}
-              </button>
-            </div>
+                
+                <div className="flex-1" />
+
+                <button 
+                  onClick={step === 1 ? () => setStep(2) : handleCreateOrder}
+                  disabled={isCreatingOrder}
+                  className={`flex items-center justify-center gap-2 px-8 py-3 rounded-xl text-white font-black text-xs shadow-xl transition-all active:scale-95 ${
+                    step === 1 
+                      ? 'bg-indigo-600 hover:bg-indigo-500' 
+                      : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20'
+                  } disabled:opacity-50 min-w-[160px]`}
+                >
+                  {isCreatingOrder ? (
+                    <><RefreshCw size={16} className="animate-spin" /> جاري الحفظ...</>
+                  ) : (
+                    <>
+                      {step === 1 ? 'متابعة العمل →' : (editingOrder ? 'تحديث البيانات' : 'اعتماد الطلبية النهائية')}
+                      {step === 2 && <ShieldCheck size={18} />}
+                    </>
+                  )}
+                </button>
+             </div>
           </div>
         </div>
       </SlideOver>
@@ -1717,7 +1494,7 @@ export default function OrdersPage() {
         title={`تأكيد تحويل الحالة إلى "${confirmAction?.label}"`}
         message={`هل أنت متأكد من تغيير حالة الطلبية "${filtered.find((o) => o.id === confirmAction?.orderId)?.orderNumber || ''}"?${
           confirmAction?.newStatus === 'cancelled'
-            ? (filtered.find(o => o.id === confirmAction?.orderId)?.vanex_package_code
+            ? (filtered.find(o => o.id === confirmAction?.orderId)?.courier_tracking_code
                 ? ' (سيتم إلغاء الشحنة من فانكس + إرجاع المخزون وتسوية الحسابات)'
                 : ' (سيتم إرجاع المخزون وتسوية الحسابات الخاصة بالفاتورة)')
             : confirmAction?.newStatus === 'return_confirmed' ? ' (سيتم إرجاع المخزون وتسوية مستحقات التوصيل إن وجدت)' :

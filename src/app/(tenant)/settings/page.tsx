@@ -14,7 +14,7 @@ import { Toggle } from '@/shared/components/ui/Toggle';
 import {
   Settings, Store, CreditCard, ShoppingCart, Package, Bell,
   Users, Shield, ChevronLeft, Plus, X, Download, AlertTriangle,
-  CheckCircle2, Save, Eye
+  Save
 } from 'lucide-react';
 import { SALES_EMPLOYEE_PERMISSIONS } from '@/core/db/seed';
 import type { TenantUser, UserPermissions } from '@/core/types';

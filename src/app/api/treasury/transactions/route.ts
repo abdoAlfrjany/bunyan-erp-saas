@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      console.error('RPC Error (create_treasury_transaction_atomic):', error.message);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      console.error('RPC Error (create_treasury_transaction_atomic):', (error as Error).message);
+      return NextResponse.json({ success: false, error: (error as Error).message }, { status: 500 });
     }
 
     if (data && !data.success) {
@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('API Error (treasury-transaction):', err.message);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    console.error('API Error (treasury-transaction):', (err as Error).message);
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }

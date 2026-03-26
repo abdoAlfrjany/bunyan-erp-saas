@@ -6,7 +6,7 @@ export * from '../types';
 import {
   UserPermissions, TenantUser, Notification, Tenant, Product, Order,
   CourierCompany, Partner, Employee, Debt, TreasuryAccount,
-  TreasuryTransaction, Subscription, ShippingCityMapping, VanexSettlement
+  TreasuryTransaction, Subscription, VanexSettlement
 } from '../types';
 
 export const FULL_OWNER_PERMISSIONS: UserPermissions = {
@@ -46,7 +46,7 @@ export const PARTNER_PERMISSIONS: UserPermissions = {
 // SEED DATA
 // ═══════════════════════════════════════════
 
-const T1 = 'tenant-001'; // Left for any references if needed, though mostly unused now
+
 
 // ═══ المتاجر ═══
 export const SEED_TENANTS: Tenant[] = [];

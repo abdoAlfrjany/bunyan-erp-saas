@@ -6,7 +6,6 @@ import type { StateCreator } from 'zustand';
 import type {
   CourierCompany,
   Debt,
-  DebtPayment,
   Tenant,
   TreasuryAccount,
   TreasuryTransaction,
@@ -23,26 +22,26 @@ import { createClient } from '../supabase';
 // ══════════════════════════════════════════
 // Helpers: Mappers between Supabase & App
 // ══════════════════════════════════════════
-export const mapSupabaseRowToCourier = (row: any): CourierCompany => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  name: row.name,
-  phone: row.phone,
-  trackingUrl: row.tracking_url,
-  isActive: row.is_active ?? true,
-  isInternal: row.is_internal ?? false,
-  provider: row.provider,
-  createdAt: row.created_at,
-  shortCode: row.short_code,
-  merchantCode: row.merchant_code,
-  contactPhone: row.contact_phone,
-  contactPerson: row.contact_person,
-  defaultDeliveryFee: Number(row.default_delivery_fee || 0),
-  apiProvider: row.api_provider,
-  isApiConnected: row.is_api_connected,
-  apiCredentials: row.api_credentials,
-  pricingZones: row.pricing_zones,
-  cities: row.cities,
+export const mapSupabaseRowToCourier = (row: Record<string, unknown>): CourierCompany => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  name: row['name'] as string,
+  phone: typeof row['phone'] === 'string' ? row['phone'] : undefined,
+  trackingUrl: typeof row['tracking_url'] === 'string' ? row['tracking_url'] : undefined,
+  isActive: (row['is_active'] as boolean) ?? true,
+  isInternal: (row['is_internal'] as boolean) ?? false,
+  provider: (row['provider'] as 'vanex' | 'internal') || 'internal',
+  createdAt: row['created_at'] as string,
+  shortCode: typeof row['short_code'] === 'string' ? row['short_code'] : undefined,
+  merchantCode: typeof row['merchant_code'] === 'string' ? row['merchant_code'] : undefined,
+  contactPhone: typeof row['contact_phone'] === 'string' ? row['contact_phone'] : undefined,
+  contactPerson: typeof row['contact_person'] === 'string' ? row['contact_person'] : undefined,
+  defaultDeliveryFee: Number(row['default_delivery_fee'] || 0),
+  apiProvider: (row['api_provider'] as 'vanex' | 'mock' | 'none') || undefined,
+  isApiConnected: (row['is_api_connected'] as boolean) ?? false,
+  apiCredentials: row['api_credentials'] as CourierCompany['apiCredentials'],
+  pricingZones: row['pricing_zones'] as CourierCompany['pricingZones'],
+  cities: Array.isArray(row['cities']) ? (row['cities'] as string[]) : undefined,
 });
 
 export const mapCourierToSupabaseRow = (c: Partial<CourierCompany> & { tenantId?: string }) => ({
@@ -66,32 +65,32 @@ export const mapCourierToSupabaseRow = (c: Partial<CourierCompany> & { tenantId?
   ...(c.tenantId ? { tenant_id: c.tenantId } : {}),
 });
 
-export const mapSupabaseRowToSettlement = (row: any): VanexSettlement => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  vanexSettlementId: row.vanex_settlement_id,
-  settlementNumber: row.settlement_number,
-  totalAmount: Number(row.total_amount || 0),
-  deliveryFees: Number(row.delivery_fees || 0),
-  bankCommission: Number(row.bank_commission || 0),
-  netAmount: Number(row.net_amount || 0),
-  paymentMethod: row.payment_method as any,
-  targetAccountType: row.target_account_type as any,
-  status: row.status as any,
-  appliedAt: row.applied_at,
-  createdAt: row.created_at,
-  packageCount: row.package_count,
-  courierCompanyId: row.courier_company_id,
-  isApproximate: row.is_approximate ?? false,
+export const mapSupabaseRowToSettlement = (row: Record<string, unknown>): VanexSettlement => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  vanexSettlementId: row['vanex_settlement_id'] as number,
+  settlementNumber: row['settlement_number'] as string,
+  totalAmount: Number(row['total_amount'] || 0),
+  deliveryFees: Number(row['delivery_fees'] || 0),
+  bankCommission: Number(row['bank_commission'] || 0),
+  netAmount: Number(row['net_amount'] || 0),
+  paymentMethod: row['payment_method'] as 'cash' | 'bank_transfer' | 'online',
+  targetAccountType: row['target_account_type'] as 'cash_in_hand' | 'bank',
+  status: row['status'] as 'pending' | 'applied' | 'approved' | 'rejected',
+  appliedAt: typeof row['applied_at'] === 'string' ? row['applied_at'] : undefined,
+  createdAt: row['created_at'] as string,
+  packageCount: row['package_count'] as number,
+  courierCompanyId: row['courier_company_id'] as string,
+  isApproximate: (row['is_approximate'] as boolean) ?? false,
 });
 
-export const mapSupabaseRowToTreasuryAccount = (row: any): TreasuryAccount => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  accountName: row.account_name,
-  accountType: row.account_type as any,
-  balance: Number(row.balance || 0),
-  linkedCourierId: row.linked_courier_id,
+export const mapSupabaseRowToTreasuryAccount = (row: Record<string, unknown>): TreasuryAccount => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  accountName: row['account_name'] as string,
+  accountType: row['account_type'] as 'cash_in_hand' | 'bank' | 'with_courier',
+  balance: Number((row['balance'] as number) || 0),
+  linkedCourierId: row['linked_courier_id'] as string,
 });
 
 export const mapTreasuryAccountToSupabaseRow = (a: Partial<TreasuryAccount> & { tenantId?: string }) => ({
@@ -103,16 +102,16 @@ export const mapTreasuryAccountToSupabaseRow = (a: Partial<TreasuryAccount> & { 
   ...(a.tenantId ? { tenant_id: a.tenantId } : {}),
 });
 
-export const mapSupabaseRowToTransaction = (row: any): TreasuryTransaction => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  accountId: row.account_id,
-  transactionType: row.transaction_type as any,
-  amount: Number(row.amount || 0),
-  description: row.description,
-  transactionDate: row.transaction_date,
-  createdAt: row.created_at,
-  createdBy: row.created_by,
+export const mapSupabaseRowToTransaction = (row: Record<string, unknown>): TreasuryTransaction => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  accountId: row['account_id'] as string,
+  transactionType: row['transaction_type'] as 'income' | 'expense' | 'sale' | 'courier_settlement' | 'partner_withdrawal' | 'profit_distribution_record',
+  amount: Number((row['amount'] as number) || 0),
+  description: typeof row['description'] === 'string' ? row['description'] : '',
+  transactionDate: row['transaction_date'] as string,
+  createdAt: row['created_at'] as string,
+  createdBy: typeof row['created_by'] === 'string' ? row['created_by'] : undefined,
 });
 
 export const mapTransactionToSupabaseRow = (t: Partial<TreasuryTransaction> & { tenantId?: string }) => ({
@@ -126,35 +125,35 @@ export const mapTransactionToSupabaseRow = (t: Partial<TreasuryTransaction> & { 
   ...(t.tenantId ? { tenant_id: t.tenantId } : {}),
 });
 
-export const mapSupabaseRowToCustomer = (row: any): Customer => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  name: row.name,
-  phone: row.phone,
-  phoneAlt: row.phone_alt,
-  city: row.city,
-  region: row.region,
-  address: row.address,
-  totalOrders: Number(row.total_orders || 0),
-  successOrders: Number(row.success_orders || 0),
-  totalSpent: Number(row.total_spent || 0),
-  createdAt: row.created_at,
+export const mapSupabaseRowToCustomer = (row: Record<string, unknown>): Customer => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  name: row['name'] as string,
+  phone: row['phone'] as string,
+  phoneAlt: typeof row['phone_alt'] === 'string' ? row['phone_alt'] : undefined,
+  city: row['city'] as string,
+  region: typeof row['region'] === 'string' ? row['region'] : undefined,
+  address: typeof row['address'] === 'string' ? row['address'] : undefined,
+  totalOrders: Number(row['total_orders'] || 0),
+  successOrders: Number(row['success_orders'] || 0),
+  totalSpent: Number(row['total_spent'] || 0),
+  createdAt: row['created_at'] as string,
 });
 
-export const mapSupabaseRowToDebt = (row: any): Debt => ({
-  id: row.id,
-  tenantId: row.tenant_id,
-  amount: Number(row.amount || 0),
-  paidAmount: Number(row.paid_amount || 0),
-  dueDate: row.due_date,
-  status: row.status as any,
-  debtType: row.debt_type as any,
-  debtCategory: row.debt_category as any,
-  linkedEntityId: row.linked_entity_id,
-  linkedEntityName: row.linked_entity_name,
-  notes: row.notes,
-  paymentHistory: row.payment_history || [],
-  createdAt: row.created_at,
+export const mapSupabaseRowToDebt = (row: Record<string, unknown>): Debt => ({
+  id: row['id'] as string,
+  tenantId: row['tenant_id'] as string,
+  amount: Number((row['amount'] as number) || 0),
+  paidAmount: Number((row['paid_amount'] as number) || 0),
+  dueDate: row['due_date'] as string,
+  status: row['status'] as 'active' | 'partial' | 'paid' | 'pending',
+  debtType: row['debt_type'] as 'internal' | 'external',
+  debtCategory: row['debt_category'] as 'custody' | 'partner_advance' | 'employee_advance' | 'supplier' | 'customer',
+  linkedEntityId: typeof row['linked_entity_id'] === 'string' ? row['linked_entity_id'] : undefined,
+  linkedEntityName: typeof row['linked_entity_name'] === 'string' ? row['linked_entity_name'] : '',
+  notes: typeof row['notes'] === 'string' ? row['notes'] : '',
+  paymentHistory: (row['payment_history'] as { id: string; amount: number; date: string; createdAt: string }[]) || [],
+  createdAt: row['created_at'] as string,
 });
 
 export interface CoreSlice {
@@ -192,7 +191,7 @@ export interface CoreSlice {
   deleteCourier: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Debts
-  addDebt: (d: Debt) => Promise<void>;
+  addDebt: (d: Debt) => Promise<{ success: boolean; error?: string }>;
   updateDebt: (id: string, data: Partial<Debt>) => Promise<void>;
   payDebt: (id: string, amount: number) => Promise<void>;
 
@@ -202,7 +201,7 @@ export interface CoreSlice {
   updateTenant: (id: string, data: Partial<Tenant>) => void;
 
   // Treasury
-  addTransaction: (t: TreasuryTransaction) => Promise<void>;
+  addTransaction: (t: TreasuryTransaction) => Promise<{ success: boolean; error?: string }>;
   addTreasuryAccount: (a: TreasuryAccount) => Promise<void>;
 
   // Users
@@ -224,7 +223,8 @@ export interface CoreSlice {
   updateSubscriptionStatus: (id: string, status: Subscription['status']) => void;
 }
 
-export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) => ({
+import type { DataState } from '../store';
+export const createCoreSlice: StateCreator<DataState, [], [], CoreSlice> = (set, get) => ({
   couriers: [],
   debts: [],
   treasury: [],
@@ -265,8 +265,8 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       }
 
       set({ 
-        treasury: accounts.map(mapSupabaseRowToTreasuryAccount),
-        transactions: (txRes.data || []).map(mapSupabaseRowToTransaction)
+        treasury: (accounts as Record<string, unknown>[]).map(mapSupabaseRowToTreasuryAccount),
+        transactions: ((txRes.data as unknown as Record<string, unknown>[]) || []).map(mapSupabaseRowToTransaction)
       });
     } catch (e) { console.error('Error fetching treasury:', e); }
   },
@@ -276,7 +276,7 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const supabase = createClient();
       const { data, error } = await supabase.from('couriers').select('*').eq('tenant_id', tenantId).limit(100);
       if (error) throw error;
-      set({ couriers: (data || []).map(mapSupabaseRowToCourier) });
+      set({ couriers: (data as unknown as Record<string, unknown>[] || []).map(mapSupabaseRowToCourier) });
     } catch (e) { console.error('Error fetching couriers:', e); }
   },
 
@@ -285,7 +285,7 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const supabase = createClient();
       const { data, error } = await supabase.from('customers').select('*').eq('tenant_id', tenantId).limit(200);
       if (error) throw error;
-      set({ customers: (data || []).map(mapSupabaseRowToCustomer) });
+      set({ customers: (data as unknown as Record<string, unknown>[] || []).map(mapSupabaseRowToCustomer) });
     } catch (e) { console.error('Error fetching customers:', e); }
   },
 
@@ -294,7 +294,7 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const supabase = createClient();
       const { data, error } = await supabase.from('debts').select('*').eq('tenant_id', tenantId).limit(200);
       if (error) throw error;
-      set({ debts: (data || []).map(mapSupabaseRowToDebt) });
+      set({ debts: (data as unknown as Record<string, unknown>[] || []).map(mapSupabaseRowToDebt) });
     } catch (e) { console.error('Error fetching debts:', e); }
   },
 
@@ -302,15 +302,15 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
     data.filter((item) => item.tenantId === tenantId),
 
   addCustomCategory: (category, tenantId) =>
-    set((s: any) => {
-      const existing = s.customCategories[tenantId] || [];
+    set((s) => {
+      const existing = (s.customCategories[tenantId] || []);
       if (existing.includes(category)) return s;
       return { customCategories: { ...s.customCategories, [tenantId]: [...existing, category] } };
     }),
 
   addCustomUnit: (unit, tenantId) =>
-    set((s: any) => {
-      const existing = s.customUnits[tenantId] || [];
+    set((s) => {
+      const existing = (s.customUnits[tenantId] || []);
       if (existing.includes(unit)) return s;
       return { customUnits: { ...s.customUnits, [tenantId]: [...existing, unit] } };
     }),
@@ -326,10 +326,10 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
       
-      set((s: any) => ({ 
-        couriers: [mapSupabaseRowToCourier(result.data), ...s.couriers] 
+      set((s) => ({ 
+        couriers: [mapSupabaseRowToCourier(result.data as Record<string, unknown>), ...s.couriers] 
       }));
-    } catch (e: any) { console.error('Error adding courier:', e.message); }
+    } catch (e: unknown) { console.error('Error adding courier:', (e as Error).message); }
   },
   
   updateCourier: async (id, data) => {
@@ -342,10 +342,10 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
 
-      set((s: any) => ({
+      set((s) => ({
         couriers: s.couriers.map((c: CourierCompany) => (c.id === id ? { ...c, ...data } : c)),
       }));
-    } catch (e: any) { console.error('Error updating courier:', e.message); }
+    } catch (e: unknown) { console.error('Error updating courier:', (e as Error).message); }
   },
 
   toggleCourier: async (id) => {
@@ -360,17 +360,17 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
 
-      set((s: any) => ({
+      set((s) => ({
         couriers: s.couriers.map((c: CourierCompany) => (c.id === id ? { ...c, isActive: !c.isActive } : c)),
       }));
-    } catch (e: any) { console.error('Error toggling courier:', e.message); }
+    } catch (e: unknown) { console.error('Error toggling courier:', (e as Error).message); }
   },
 
   deleteCourier: async (id) => {
     const state = get();
     // Use state.orders since orders are not yet fully migrated to react-query in all places
     const hasActiveOrders = (state.orders || []).some(
-      (o: any) => ['with_courier', 'pending_return'].includes(o.status) && o.courierCompanyId === id
+      (o: { status: string; courierCompanyId?: string }) => ['with_courier', 'pending_return'].includes(o.status) && o.courierCompanyId === id
     );
     if (hasActiveOrders) return { success: false, error: 'لا يمكن حذف هذه الشركة — لديها شحنات نشطة غير مكتملة' };
     
@@ -379,13 +379,13 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
 
-      set((s: any) => ({
+      set((s) => ({
         couriers: s.couriers.filter((c: CourierCompany) => c.id !== id),
         treasury: s.treasury.filter((t: TreasuryAccount) => t.linkedCourierId !== id),
       }));
       return { success: true };
-    } catch (e: any) {
-      console.error('Error deleting courier:', e.message);
+    } catch (e: unknown) {
+      console.error('Error deleting courier:', (e as Error).message);
       return { success: false };
     }
   },
@@ -410,8 +410,14 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       };
       const { data, error } = await supabase.from('debts').insert([row]).select().single();
       if (error) throw error;
-      set((s: any) => ({ debts: [{ ...mapSupabaseRowToDebt(data), paymentHistory: d.paymentHistory || [] }, ...s.debts] }));
-    } catch (e: any) { console.error('Error adding debt:', e.message); }
+      const mapped = mapSupabaseRowToDebt(data as unknown as Record<string, unknown>);
+      set((s) => ({ debts: [{ ...mapped, paymentHistory: d.paymentHistory || [] }, ...s.debts.filter(x => x.id !== (data as { id: string }).id)] }));
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = (e as Error).message || 'Unknown error';
+      console.error('Error adding debt:', msg);
+      return { success: false, error: msg };
+    }
   },
 
   updateDebt: async (id, data) => {
@@ -426,14 +432,14 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
         payment_history: data.paymentHistory,
       };
       // remove undefined
-      Object.keys(row).forEach(key => (row as any)[key] === undefined && delete (row as any)[key]);
+      Object.keys(row).forEach(key => (row as Record<string, unknown>)[key] === undefined && delete (row as Record<string, unknown>)[key]);
       
       const { error } = await supabase.from('debts').update(row).eq('id', id);
       if (error) throw error;
-      set((s: any) => ({
+      set((s) => ({
         debts: s.debts.map((d: Debt) => (d.id === id ? { ...d, ...data } : d)),
       }));
-    } catch (e: any) { console.error('Error updating debt:', e.message); }
+    } catch (e: unknown) { console.error('Error updating debt:', (e as Error).message); }
   },
   payDebt: async (id, amount) => {
     const state = get();
@@ -469,15 +475,15 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const newStatus = newPaid >= debt.amount ? 'paid' : 'partial';
       const newHistory = [...debt.paymentHistory, { id: crypto.randomUUID(), amount, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() }];
 
-      set((s: any) => ({
+      set((s) => ({
         debts: s.debts.map((d: Debt) => (d.id === id ? { ...d, paidAmount: newPaid, status: newStatus, paymentHistory: newHistory } : d)),
       }));
-    } catch (e: any) { console.error('Error paying debt:', e.message); }
+    } catch (e: unknown) { console.error('Error paying debt:', (e as Error).message); }
   },
 
   // ══ Tenants ══
   toggleTenant: (id) =>
-    set((s: any) => ({
+    set((s) => ({
       tenants: s.tenants.map((t: Tenant) => (t.id === id ? { ...t, isActive: !t.isActive } : t)),
       users: s.users.map((u: TenantUser) => {
         if (u.tenantId !== id) return u;
@@ -487,7 +493,7 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
     })),
 
   addTenant: (t) =>
-    set((s: any) => ({
+    set((s) => ({
       tenants: [t, ...s.tenants],
       subscriptions: [
         {
@@ -524,7 +530,7 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
     })),
 
   updateTenant: (id, data) =>
-    set((s: any) => ({
+    set((s) => ({
       tenants: s.tenants.map((t: Tenant) => (t.id === id ? { ...t, ...data } : t)),
     })),
 
@@ -550,59 +556,64 @@ export const createCoreSlice: StateCreator<any, [], [], CoreSlice> = (set, get) 
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
 
-      set((s: any) => ({
+      set((s) => ({
         transactions: [t, ...s.transactions],
         treasury: s.treasury.map((a: TreasuryAccount) =>
           a.id === t.accountId ? { ...a, balance: a.balance + t.amount } : a
         ),
       }));
-    } catch (e: any) { console.error('Error adding transaction:', e.message); }
+      return { success: true };
+    } catch (e: unknown) {
+      const msg = (e as Error).message;
+      console.error('Error adding transaction:', msg);
+      return { success: false, error: msg };
+    }
   },
   addTreasuryAccount: async (a) => {
     try {
       const supabase = createClient();
       const { data, error } = await supabase.from('treasury_accounts').insert([mapTreasuryAccountToSupabaseRow(a)]).select().single();
       if (error) throw error;
-      set((s: any) => ({ treasury: [mapSupabaseRowToTreasuryAccount(data), ...s.treasury] }));
-    } catch (e: any) { console.error('Error adding treasury account:', e.message); }
+      set((s) => ({ treasury: [mapSupabaseRowToTreasuryAccount(data as unknown as Record<string, unknown>), ...s.treasury] }));
+    } catch (e: unknown) { console.error('Error adding treasury account:', (e as Error).message); }
   },
 
   // ══ Users ══
-  addUser: (u) => set((s: any) => ({ users: [u, ...s.users] })),
+  addUser: (u) => set((s) => ({ users: [u, ...s.users] })),
   updateUser: (id, data) =>
-    set((s: any) => ({
+    set((s) => ({
       users: s.users.map((u: TenantUser) => (u.id === id ? { ...u, ...data } : u)),
     })),
   getUserByEmail: (email) => get().users.find((u: TenantUser) => u.email === email),
 
   // ══ Notifications ══
-  addNotification: (n) => set((s: any) => ({ notifications: [n, ...s.notifications] })),
+  addNotification: (n) => set((s) => ({ notifications: [n, ...s.notifications] })),
   markNotificationRead: (id) =>
-    set((s: any) => ({
+    set((s) => ({
       notifications: s.notifications.map((n: Notification) =>
         n.id === id ? { ...n, isRead: true } : n
       ),
     })),
   markAllRead: (tenantId) =>
-    set((s: any) => ({
+    set((s) => ({
       notifications: s.notifications.map((n: Notification) =>
         n.tenantId === tenantId ? { ...n, isRead: true } : n
       ),
     })),
   clearNotifications: (tenantId) =>
-    set((s: any) => ({
+    set((s) => ({
       notifications: s.notifications.filter((n: Notification) => n.tenantId !== tenantId),
     })),
   getUnreadCount: (tenantId) =>
     get().notifications.filter((n: Notification) => n.tenantId === tenantId && !n.isRead).length,
 
   // ══ Super Admin ══
-  addAnnouncement: (a) => set((s: any) => ({ announcements: [a, ...s.announcements] })),
+  addAnnouncement: (a) => set((s) => ({ announcements: [a, ...s.announcements] })),
   removeAnnouncement: (id) =>
-    set((s: any) => ({ announcements: s.announcements.filter((x: SystemAnnouncement) => x.id !== id) })),
-  addAuditLog: (log) => set((s: any) => ({ auditLogs: [log, ...s.auditLogs] })),
+    set((s) => ({ announcements: s.announcements.filter((x: SystemAnnouncement) => x.id !== id) })),
+  addAuditLog: (log) => set((s) => ({ auditLogs: [log, ...s.auditLogs] })),
   updateSubscriptionStatus: (id, status) =>
-    set((s: any) => ({
+    set((s) => ({
       subscriptions: s.subscriptions.map((sub: Subscription) =>
         sub.id === id ? { ...sub, status } : sub
       ),

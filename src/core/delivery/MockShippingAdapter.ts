@@ -34,7 +34,7 @@ export class MockShippingAdapter implements IDeliveryProvider {
   readonly providerName = 'mock';
 
   setCredentials(_email: string, _passwordHash: string) {
-    // Mock adapter doesn't need real credentials
+    void _email; void _passwordHash;
   }
   async authenticate(credentials: { email: string; password: string }) {
     await delay(500);
@@ -65,27 +65,32 @@ export class MockShippingAdapter implements IDeliveryProvider {
   }
 
   async createShipment(_payload: ICreateShipmentPayload, _token: string): Promise<ICreateShipmentResult> {
+    void _payload; void _token;
     await delay(600);
     const code = `MCK-${++mockCounter}`;
     return { success: true, trackingCode: code, internalId: mockCounter, rawStatus: 'pending' };
   }
 
   async getShipmentStatus(_trackingCode: string): Promise<IShipmentStatusResult> {
+    void _trackingCode;
     await delay(300);
     return { rawStatus: 'shipped', bunyanStatus: 'with_courier', lastUpdate: new Date().toISOString() };
   }
 
   async cancelShipment(_id: number, _token: string) {
+    void _id; void _token;
     await delay(400);
     return { success: true };
   }
 
   async recallShipment(_id: number, _token: string, _reason?: string) {
+    void _id; void _token; void _reason;
     await delay(400);
     return { success: true };
   }
 
   async getSettlements(_token: string, _status?: string): Promise<import('../types').VanexSettlement[]> {
+    void _token; void _status;
     await delay(400);
     return [
       {
@@ -108,6 +113,7 @@ export class MockShippingAdapter implements IDeliveryProvider {
   }
 
   async getSettlementDetails(_id: number, _token: string): Promise<import('../types').VanexSettlement | null> {
+    void _token;
     await delay(300);
     return {
       id: 'vs-mock-detail-1',

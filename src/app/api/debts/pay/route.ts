@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[POST /api/debts/pay] Error:', error);
     return NextResponse.json({ error: 'خطأ داخلي في النظام' }, { status: 500 });
   }

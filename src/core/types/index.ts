@@ -40,6 +40,7 @@ export interface Tenant {
   plan: 'trial' | 'basic' | 'pro' | 'lifetime'; planExpiresAt: string;
   isActive: boolean; city: string; createdAt: string; billingModel: 'post_paid' | 'pre_paid';
   website?: string; categories?: string[];
+  bankCommissionPercentage?: number;
 }
 
 export interface ProductVariant {
@@ -88,10 +89,10 @@ export interface Order {
   extra_size_by?: 'customer' | 'market';
   prepaid_amount?: number;
   partial_delivery?: boolean;
-  vanex_package_code?: string;
-  vanex_package_id?: number;
-  vanexCityId?: number;
-  vanexSubCityId?: number;
+  courier_tracking_code?: string;
+  courier_package_id?: number;
+  courierCityId?: number;
+  courierSubCityId?: number;
   dimLength?: number;
   dimWidth?: number;
   dimHeight?: number;
@@ -396,6 +397,6 @@ export interface IDeliveryProvider {
   getShipmentStatus(trackingCode: string, token?: string): Promise<IShipmentStatusResult>;
   cancelShipment(id: number | string, token: string): Promise<{ success: boolean; error?: string }>;
   recallShipment(id: number | string, token: string, reason?: string): Promise<{ success: boolean; error?: string }>;
-  getSettlements(token: string, status?: string): Promise<VanexSettlement[]>;
-  getSettlementDetails(id: number | string, token: string): Promise<VanexSettlement | null>;
+  getSettlements(token: string, status?: string, commissionRate?: number): Promise<VanexSettlement[]>;
+  getSettlementDetails(id: number | string, token: string, commissionRate?: number): Promise<VanexSettlement | null>;
 }
