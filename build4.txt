@@ -1,0 +1,19 @@
+  Γû▓ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/api/orders/route.ts:72:39
+Type error: Parameter 'p' implicitly has an 'any' type.
+
+  70 |
+  71 |     for (const item of o.items) {
+> 72 |       const product = dbProducts.find(p => p.id === item.productId);
+     |                                       ^
+  73 |       if (!product) {
+  74 |         return NextResponse.json({ error: `╪º┘ä┘à┘å╪¬╪¼ "${item.productName}" ╪║┘è╪▒ ┘à┘ê╪¼┘ê╪» ┘ü┘è ┘é╪º╪╣╪»╪⌐ ╪º┘ä╪¿┘è╪º┘å╪º╪¬` }, { status: 400 });
+  75 |       }
+Next.js build worker exited with code: 1 and signal: null

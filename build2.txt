@@ -1,0 +1,19 @@
+  Γû▓ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/(tenant)/debts/page.tsx:66:65
+Type error: Parameter 'd' implicitly has an 'any' type.
+
+  64 |   });
+  65 |
+> 66 |   const filtered = filter === 'all' ? myDebts : myDebts.filter((d) => d.debtType === filter);
+     |                                                                 ^
+  67 |   
+  68 |   // calculations:
+  69 |   // ╪»┘è┘ê┘å ╪╣┘ä┘è┘å╪º (┘ä┘ä┘à┘ê╪▒╪»┘è┘å) - ╪º┘ä╪«╪╡┘ê┘à
+Next.js build worker exited with code: 1 and signal: null

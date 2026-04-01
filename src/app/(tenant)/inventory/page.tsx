@@ -15,12 +15,15 @@ import { useGetForTenant, useUpdateProduct, useDeleteProduct } from '@/core/db/h
 import type { ProductVariant } from '@/core/types';
 import { formatCurrency, formatNumber } from '@/shared/utils/format';
 import { getStockStatus, getStatusBadgeClasses } from '@/shared/utils/statusColors';
-import { SlideOver } from '@/shared/components/ui/SlideOver';
-import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
+import dynamic from 'next/dynamic';
+
+const SlideOver = dynamic(() => import('@/shared/components/ui/SlideOver').then(mod => mod.SlideOver), { ssr: false });
+const ConfirmDialog = dynamic(() => import('@/shared/components/ui/ConfirmDialog').then(mod => mod.ConfirmDialog), { ssr: false });
 import { useToast } from '@/shared/components/ui/Toast';
 import { Package, Plus, Search, Pencil, Trash2, AlertTriangle, AlertCircle, X, BarChart2, TrendingUp, DollarSign, Eye } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { AddProductSlideOver } from '@/shared/components/ui';
+
+const AddProductSlideOver = dynamic(() => import('@/shared/components/ui/AddProductSlideOver').then(mod => mod.AddProductSlideOver), { ssr: false });
 
 type Filter = 'all' | 'available' | 'low' | 'out';
 
@@ -500,7 +503,7 @@ export default function InventoryPage() {
 
   const handleDelete = async () => {
     if (deleteTarget) {
-      const res = await deleteProduct(deleteTarget.id);
+      const res = await deleteProduct(deleteTarget.id, tid);
       setDeleteTarget(null);
       if (res.success) {
         queryClient.invalidateQueries({ queryKey: ['products', tid] });

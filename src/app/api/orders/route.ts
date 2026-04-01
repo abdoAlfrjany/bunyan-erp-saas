@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/app/api/orders/route.ts
 // الميزة: مسار آمن لإنشاء الطلبيات ومراجعة المخزون بشكل ذري
 // 🔒 محمي بـ requireAuth + assertTenantMatch
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceClient } from '@/core/db/supabase';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 
 interface OrderItem {
@@ -54,11 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'بيانات الطلبية غير مكتملة' }, { status: 400 });
     }
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
+    const supabaseAdmin = createServiceClient();
 
     // 3. فحص المخزون الصارم من قاعدة البيانات
     const productIds = o.items.map((i) => i.productId);
@@ -73,7 +70,7 @@ export async function POST(req: NextRequest) {
     }
 
     for (const item of o.items) {
-      const product = dbProducts.find(p => p.id === item.productId);
+      const product = dbProducts.find((p: any) => p.id === item.productId);
       if (!product) {
         return NextResponse.json({ error: `المنتج "${item.productName}" غير موجود في قاعدة البيانات` }, { status: 400 });
       }
@@ -158,31 +155,22 @@ export async function POST(req: NextRequest) {
       console.error('/api/orders deduct_inventory err:', rpcError);
     }
 
-    // 6. مزامنة ملف العميل
-    const { data: existingCustomers } = await supabaseAdmin
+    // 6. مزامنة ملف العميل — UPSERT ذري (يمنع race condition)
+    await supabaseAdmin
       .from('customers')
-      .select('id, address, total_orders')
-      .eq('phone', o.customerPhone)
-      .eq('tenant_id', o.tenantId);
-
-    if (existingCustomers && existingCustomers.length > 0) {
-      const existingCustomer = existingCustomers[0];
-      await supabaseAdmin.from('customers').update({
-        name: o.customerName,
-        city: o.customerCity,
-        address: o.customerAddress || existingCustomer.address,
-        total_orders: (existingCustomer.total_orders || 0) + 1,
-      }).eq('id', existingCustomer.id);
-    } else {
-      await supabaseAdmin.from('customers').insert({
+      .upsert({
         tenant_id: o.tenantId,
         name: o.customerName,
         phone: o.customerPhone,
         city: o.customerCity,
         address: o.customerAddress ?? null,
         total_orders: 1,
-      });
-    }
+      }, {
+        onConflict: 'phone,tenant_id',
+        ignoreDuplicates: false,
+      })
+      .select('id')
+      .single();
 
     return NextResponse.json({ success: true, order: insertData });
 

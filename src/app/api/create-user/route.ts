@@ -1,18 +1,45 @@
 // src/app/api/create-user/route.ts
 // الوظيفة: إنشاء حساب Supabase Auth لموظف أو شريك جديد
+// 🔒 محمي بـ requireAuth + assertTenantMatch + التحقق من دور owner
 // يستخدم service_role key لتجاوز قيود الأمان
 // المرجع: 1_SYSTEM_RULES.md — RBAC Integration for Partners & Employees
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    // 🔒 التحقق من الهوية — فقط المالكون يمكنهم إنشاء حسابات
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
+    // 🔒 يجب أن يكون المستخدم owner أو super_admin
+    if (auth.role !== 'owner' && auth.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'غير مصرح — فقط مالك المتجر يمكنه إنشاء حسابات' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { email, password, tenantId, fullName, role, permissions, phone } = body;
 
     if (!email || !password || !tenantId || !fullName || !role) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
+    }
+
+    // 🔒 التحقق من أن tenantId يطابق المستأجر الحالي
+    const tenantCheck = assertTenantMatch(auth, tenantId);
+    if (tenantCheck) return tenantCheck;
+
+    // 🔒 منع إنشاء حسابات بأدوار أعلى من المسموح
+    const allowedRoles = ['employee', 'partner'];
+    if (!allowedRoles.includes(role)) {
+      return NextResponse.json(
+        { error: `الدور غير مسموح — الأدوار المتاحة: ${allowedRoles.join(', ')}` },
+        { status: 400 }
+      );
     }
 
     // استخدام service_role key للعمليات الإدارية

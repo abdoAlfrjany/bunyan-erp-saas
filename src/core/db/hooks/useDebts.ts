@@ -1,11 +1,13 @@
 // src/core/db/hooks/useDebts.ts
-// الميزة: خطافات React Query لإدارة الديون، الزبائن، الموظفين، والشركاء
-// توفر هذه الخطافات تزامناً تلقائياً مع قاعدة بيانات Supabase وتقوم بتطهير حالة Zustand تدريجياً
+// الميزة: خطافات React Query لإدارة الديون
+// ✅ Performance: أعمدة محددة + staleTime مضبوط
 
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '../supabase';
-import { mapSupabaseRowToDebt, mapSupabaseRowToCustomer } from '../slices/coreSlice';
-import { mapRowToEmployee, mapRowToPartner } from '../slices/partnersEmployeesSlice';
+import { mapSupabaseRowToDebt } from '../slices/coreSlice';
+
+// ═══ أعمدة محددة — تجنب سحب payment_history الكبير بلا داعي ═══
+const DEBT_COLUMNS = 'id, tenant_id, amount, paid_amount, due_date, status, debt_type, debt_category, linked_entity_id, linked_entity_name, notes, payment_history, created_at, created_by';
 
 /**
  * جلب جميع الديون الخاصة بالمستأجر
@@ -18,7 +20,7 @@ export function useDebtsQuery(tenantId: string) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from('debts')
-        .select('*')
+        .select(DEBT_COLUMNS)
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
@@ -26,72 +28,6 @@ export function useDebtsQuery(tenantId: string) {
       return (data || []).map(mapSupabaseRowToDebt);
     },
     enabled: !!tenantId,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-}
-
-/**
- * جلب الزبائن
- */
-export function useCustomersQuery(tenantId: string) {
-  return useQuery({
-    queryKey: ['customers', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return [];
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('name');
-
-      if (error) throw error;
-      return (data || []).map(mapSupabaseRowToCustomer);
-    },
-    enabled: !!tenantId,
-  });
-}
-
-/**
- * جلب الموظفين
- */
-export function useEmployeesQuery(tenantId: string) {
-  return useQuery({
-    queryKey: ['employees', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return [];
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('name');
-
-      if (error) throw error;
-      return (data || []).map(mapRowToEmployee);
-    },
-    enabled: !!tenantId,
-  });
-}
-
-/**
- * جلب الشركاء
- */
-export function usePartnersQuery(tenantId: string) {
-  return useQuery({
-    queryKey: ['partners', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return [];
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('partners')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('name');
-
-      if (error) throw error;
-      return (data || []).map(mapRowToPartner);
-    },
-    enabled: !!tenantId,
+    staleTime: 1000 * 60 * 5,
   });
 }

@@ -1,39 +1,14 @@
 // src/app/api/webhooks/vanex/route.ts
 // الوظيفة: استقبال تحديثات حالة الشحنات من Vanex في الوقت الفعلي
-// 🔒 محمي بـ token سري (VANEX_WEBHOOK_SECRET)
+// 🔒 محمي بـ webhook_secret لكل شركة توصيل (مع fallback لـ VANEX_WEBHOOK_SECRET)
 // ✅ return 200 دائماً — لمنع إعادة المحاولة اللانهائية من Vanex
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { VANEX_TO_BUNYAN_STATUS } from '@/core/delivery/VanexAdapter';
+import { applyCancelSideEffects } from '@/core/delivery/cancelOrderSideEffects';
 
 const VANEX_WEBHOOK_SECRET = process.env.VANEX_WEBHOOK_SECRET;
-
-// ── نفس mapping الموجود في VanexAdapter.ts ──
-const VANEX_TO_BUNYAN_STATUS: Record<string, string> = {
-  store_new:           'pending',         
-  pending:             'pending',         
-  ship_received:       'ready_to_ship',   
-  ship_preperation:    'with_courier',    
-  ship_ongoing:        'with_courier',    
-  ship_pending:        'with_courier',    
-  shipped:             'with_courier',    
-  on_track:            'with_courier',    
-  enable_delivery:     'with_courier',    
-  pending_office_sett: 'delivered',       
-  pending_store_sett:  'delivered',       
-  completed:           'delivered',       
-  delivered:           'delivered',       
-  complete:            'delivered',       
-  ship_del_return:     'pending_return',  
-  returned:            'pending_return',  
-  store_return:        'return_confirmed',
-  store_canceled:      'cancelled',       
-  cancelled:           'cancelled',       
-  canceled:            'cancelled',       
-  canceled_by_admin:   'cancelled',       
-  canceled_by_source:  'cancelled',       
-  refused:             'pending_return',  
-};
 
 export async function POST(req: NextRequest) {
   let logId: string | null = null;
@@ -56,7 +31,7 @@ export async function POST(req: NextRequest) {
       .insert({
         source: 'vanex',
         event_type: 'raw_incoming',
-        courier_tracking_code: body['package-code'] ?? body.package_code ?? body.data?.['package-code'] ?? 'DEBUG',
+        vanex_package_code: body['package-code'] ?? body.package_code ?? body.data?.['package-code'] ?? 'DEBUG',
         payload: { body, headers: headersObj },
         processed: false,
       })
@@ -68,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 1. التحقق من Token ──
-    // دعم جميع الأماكن المحتملة التي قد يرسل فيها فانكس الـ Token
+    // 1a. استخراج Token من كل الأماكن المحتملة
     const incomingToken =
       req.headers.get('x-webhook-token') ??
       req.headers.get('authorization')?.replace('Bearer ', '') ??
@@ -76,9 +51,33 @@ export async function POST(req: NextRequest) {
       body.token ??
       null;
 
-    if (!VANEX_WEBHOOK_SECRET || incomingToken !== VANEX_WEBHOOK_SECRET) {
-      // تحديث السجل كمرجوع بسبب المصادقة
-      if (logId) await supabaseAdmin.from('webhook_logs').update({ error: `Unauthorized. Expected: ${VANEX_WEBHOOK_SECRET?.slice(0,5)}..., Got: ${incomingToken}` }).eq('id', logId);
+    // 1b. محاولة التحقق من webhook_secret الخاص بشركة التوصيل أولاً
+    let isAuthorized = false;
+
+    if (incomingToken) {
+      // أولاً: تحقق من الـ secret الموحد (Fallback)
+      if (VANEX_WEBHOOK_SECRET && incomingToken === VANEX_WEBHOOK_SECRET) {
+        isAuthorized = true;
+      }
+
+      // ثانياً: تحقق من الـ secret الخاص بشركة التوصيل (Tenant-specific)
+      if (!isAuthorized) {
+        const { data: courierMatch } = await supabaseAdmin
+          .from('couriers')
+          .select('id')
+          .eq('webhook_secret', incomingToken)
+          .eq('api_provider', 'vanex')
+          .limit(1)
+          .maybeSingle();
+
+        if (courierMatch) {
+          isAuthorized = true;
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      if (logId) await supabaseAdmin.from('webhook_logs').update({ error: `Unauthorized. Got: ${incomingToken?.slice(0, 8)}...` }).eq('id', logId);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -97,25 +96,8 @@ export async function POST(req: NextRequest) {
     const bunyanStatus: string =
       VANEX_TO_BUNYAN_STATUS[rawStatus] ?? 'with_courier';
 
-    // ── 3. تسجيل الـ webhook فوراً ──
-    if (!logId) {
-      const { data: logData, error: logError } = await supabaseAdmin
-        .from('webhook_logs')
-        .insert({
-          source: 'vanex',
-          event_type: rawStatus,
-          courier_tracking_code: code,
-          payload: body,
-          processed: false,
-        })
-        .select('id')
-        .single();
-  
-      if (!logError && logData) {
-        logId = logData.id;
-      }
-    } else {
-      // Update the existing debug log
+    // ── 3. تحديث سجل الـ webhook ──
+    if (logId) {
       await supabaseAdmin.from('webhook_logs').update({ event_type: rawStatus, payload: body }).eq('id', logId);
     }
 
@@ -131,28 +113,28 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 5. Idempotency — منع المعالجة المزدوجة ──
+    // الآن يعمل بشكل صحيح لأننا نستخدم vanex_package_code (العمود الحقيقي)
     const { data: existingLog } = await supabaseAdmin
       .from('webhook_logs')
       .select('id')
-      .eq('courier_tracking_code', code)
+      .eq('vanex_package_code', code)
       .eq('event_type', rawStatus)
       .eq('processed', true)
       .neq('id', logId ?? '')
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (existingLog) {
-      // تم المعالجة مسبقاً
       return NextResponse.json({ success: true });
     }
 
     // ── 6. البحث عن الطلبية ──
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('id, tenant_id, status, items, courier_raw_status')
+      .select('id, tenant_id, status, items, courier_raw_status, total, delivery_type, order_number, courier_package_id, courier_company_id, prepaid_amount')
       .eq('courier_tracking_code', code)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (orderError || !order) {
       if (logId) {
@@ -165,16 +147,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 7. معالجة كل حالة ──
-
     if (bunyanStatus === 'pending') {
-      // لا تحديث للحالة، تبقى كما هي بانتظار استلام المندوب
+      // لا تحديث للحالة
     } else if (
       bunyanStatus === 'ready_to_ship' || 
       bunyanStatus === 'with_courier' || 
       bunyanStatus === 'delivered' || 
       bunyanStatus === 'pending_return'
     ) {
-      // الأطوار التي تغير الحالة فقط ولا تسترد المخزون
       await supabaseAdmin
         .from('orders')
         .update({
@@ -195,29 +175,18 @@ export async function POST(req: NextRequest) {
         })
         .eq('id', order.id);
 
-      // استرداد المخزون
-      const items = Array.isArray(order.items) ? order.items : [];
-      if (items.length > 0) {
-        const restorePayload = items.map((i: { productId: string; quantity: number; variantSize?: string | null }) => ({
-          product_id: i.productId,
-          qty: i.quantity,
-          variant_size: i.variantSize || null,
-        }));
+      // تطبيق التأثيرات الجانبية (مخزون + ماليات) عبر الدالة المشتركة
+      const sideEffects = await applyCancelSideEffects(supabaseAdmin, order, {
+        newStatus: bunyanStatus as 'cancelled' | 'return_confirmed',
+        userId: order.tenant_id, // webhook = system action → tenant as actor
+        cancelVanexShipment: false, // لا إلغاء من فانكس — فانكس هي من أرسلت!
+      });
 
-        const { error: rpcError } = await supabaseAdmin.rpc('restore_inventory', {
-          items_payload: restorePayload,
-        });
-
-        if (rpcError) {
-          console.error('[Webhook Vanex] restore_inventory failed:', rpcError.message);
-          if (logId) {
-            await supabaseAdmin
-              .from('webhook_logs')
-              .update({ error: 'inventory restore failed: ' + rpcError.message })
-              .eq('id', logId);
-          }
-          // لا نوقف الـ webhook — نكمل
-        }
+      if (!sideEffects.inventoryRestored && logId) {
+        await supabaseAdmin
+          .from('webhook_logs')
+          .update({ error: 'inventory restore failed' })
+          .eq('id', logId);
       }
     }
 
@@ -238,14 +207,15 @@ export async function POST(req: NextRequest) {
     const errorMsg = err instanceof Error ? err.message : 'unknown error';
     console.error('[POST /api/webhooks/vanex] Error:', errorMsg);
 
-    // تسجيل الخطأ في webhook_logs إذا أمكن
     if (logId) {
       try {
         await supabaseAdmin
           .from('webhook_logs')
           .update({ error: (err instanceof Error ? err.message : String(err)) || 'unknown error' })
           .eq('id', logId);
-      } catch { }
+      } catch (logErr) {
+        console.error('[webhook] Failed to update error log:', logErr);
+      }
     }
 
     // دائماً return 200 — Vanex يعيد المحاولة عند أي خطأ

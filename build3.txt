@@ -1,0 +1,19 @@
+  Γû▓ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/api/debts/pay/route.ts:37:99
+Type error: Property 'debt_category' does not exist on type 'never'.
+
+  35 |     }
+  36 |
+> 37 |     const isIncome = ['customer', 'employee_advance', 'partner_advance', 'custody'].includes(debt.debt_category);
+     |                                                                                                   ^
+  38 |     const treasury_amount = isIncome ? Math.abs(amount) : -Math.abs(amount);
+  39 |
+  40 |     // 2. ╪¬┘å┘ü┘è╪░ ╪º┘ä╪╣┘à┘ä┘è╪⌐ ╪º┘ä╪░╪▒┘è╪⌐ ╪╣╪¿╪▒ RPC
+Next.js build worker exited with code: 1 and signal: null

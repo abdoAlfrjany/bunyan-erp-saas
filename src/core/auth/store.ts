@@ -74,17 +74,15 @@ export const useAuthStore = create<AuthState>()(
 
   logout: async () => {
     // ══ مُستدعاة من الـ UI فقط (زر تسجيل الخروج) ══
-    // لا تُستدعى من داخل onAuthStateChange لتجنب الحلقة المفرغة
     try {
       if (typeof window !== 'undefined') {
         const { createClient } = await import('@/core/db/supabase');
         const supabase = createClient();
-        await supabase.auth.signOut(); // هذا سيُطلق SIGNED_OUT → onAuthStateChange → clearLocalState فقط
+        await supabase.auth.signOut();
       }
-    } catch (err) {
-      console.error('Logout error:', err);
+    } catch {
+      // Logout error — non-critical
     }
-    // تنظيف الحالة المحلية
     if (typeof window !== 'undefined') {
       localStorage.removeItem('erp_user');
       localStorage.removeItem('erp_browsing');
@@ -187,8 +185,8 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
       });
-    } catch(err) {
-      console.error('Failed to init auth listener:', err);
+    } catch {
+      // Auth listener init failed — set loading false to unblock UI
       set({ isLoading: false });
     }
   },

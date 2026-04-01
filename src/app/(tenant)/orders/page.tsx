@@ -15,8 +15,10 @@ import { useCouriersQuery } from '@/core/db/hooks/useCouriers';
 import { VanexAdapter } from '@/core/delivery/VanexAdapter';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatCurrency, formatDate } from '@/shared/utils/format';
-import { SlideOver } from '@/shared/components/ui/SlideOver';
-import { ConfirmDialog } from '@/shared/components/ui/ConfirmDialog';
+import dynamic from 'next/dynamic';
+
+const SlideOver = dynamic(() => import('@/shared/components/ui/SlideOver').then(mod => mod.SlideOver), { ssr: false });
+const ConfirmDialog = dynamic(() => import('@/shared/components/ui/ConfirmDialog').then(mod => mod.ConfirmDialog), { ssr: false });
 import { useToast } from '@/shared/components/ui/Toast';
 import { ORDER_STATUS } from '@/shared/utils/statusColors';
 import {

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 import { vanexAdapter } from '@/core/delivery/VanexAdapter';
+import { applyCancelSideEffects } from '@/core/delivery/cancelOrderSideEffects';
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,10 +24,10 @@ export async function POST(req: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // 1. جلب الطلبية
+    // 1. جلب الطلبية (مع الحقول اللازمة للدالة المشتركة)
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, tenant_id, courier_tracking_code, courier_package_id, courier_company_id, status')
+      .select('id, tenant_id, courier_tracking_code, courier_package_id, courier_company_id, status, total, delivery_type, items, order_number, prepaid_amount')
       .eq('id', orderId)
       .single();
 
@@ -64,36 +65,37 @@ export async function POST(req: NextRequest) {
       courier_raw_status: rawStatus,
     };
 
-    // تحديث حالة بنيان فقط إذا تغيرت وكانت الحالة الجديدة غير نهائية حالياً
     const terminalStatuses = ['delivered', 'cancelled', 'return_confirmed'];
+    let statusChanged = false;
+
     if (newBunyanStatus !== order.status && !terminalStatuses.includes(order.status)) {
-      if (newBunyanStatus === 'cancelled') {
-        const cancelUrl = new URL('/api/orders/status', req.nextUrl.origin);
-        await fetch(cancelUrl.toString(), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            cookie: req.headers.get('cookie') || ''
-          },
-          body: JSON.stringify({ orderId: orderId, status: 'cancelled' }),
+      if (newBunyanStatus === 'cancelled' || newBunyanStatus === 'return_confirmed') {
+        // استخدام الدالة المشتركة بدلاً من fetch() الداخلي
+        updatePayload.status = newBunyanStatus;
+        await supabaseAdmin.from('orders').update(updatePayload).eq('id', orderId);
+
+        await applyCancelSideEffects(supabaseAdmin, order, {
+          newStatus: newBunyanStatus as 'cancelled' | 'return_confirmed',
+          userId: auth.userId,
+          cancelVanexShipment: false,
         });
-        // الـ API سيتكفل بالـ status
+
+        statusChanged = true;
       } else {
         updatePayload.status = newBunyanStatus;
+        await supabaseAdmin.from('orders').update(updatePayload).eq('id', orderId);
+        statusChanged = true;
       }
+    } else {
+      await supabaseAdmin.from('orders').update(updatePayload).eq('id', orderId);
     }
-
-    await supabaseAdmin
-      .from('orders')
-      .update(updatePayload)
-      .eq('id', orderId);
 
     return NextResponse.json({
       success: true,
       rawStatus,
       bunyanStatus: newBunyanStatus,
       lastUpdate: statusResult.lastUpdate,
-      statusChanged: updatePayload.status !== undefined,
+      statusChanged,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'unknown error';

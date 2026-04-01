@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 import { useUser } from '@/core/auth/hooks';
-import { useDebtsQuery, useCustomersQuery, useEmployeesQuery, usePartnersQuery } from '@/core/db/hooks/useDebts';
+import { useDebtsQuery } from '@/core/db/hooks/useDebts';
+import { useCustomersQuery } from '@/core/db/hooks/useCustomers';
+import { useEmployeesQuery } from '@/core/db/hooks/useEmployees';
+import { usePartnersQuery } from '@/core/db/hooks/usePartners';
 import { useTreasuryQuery } from '@/core/db/hooks/useTreasury';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAddDebt, useUpdateDebt } from '@/core/db/hooks';
@@ -33,11 +36,11 @@ export default function DebtsPage() {
   const updateDebt = useUpdateDebt();
   const { showToast } = useToast();
   
-  const myDebts = debts;
-  const myTreasury = treasury;
-  const myCustomers = customers;
-  const myEmployees = employees.filter(e => e.isActive);
-  const myPartners = partners.filter(p => p.isActive);
+  const myDebts: Debt[] = debts || [];
+  const myTreasury = treasury || [];
+  const myCustomers = customers || [];
+  const myEmployees = employees?.filter((e: { isActive?: boolean }) => e.isActive) || [];
+  const myPartners = partners?.filter((p: { isActive?: boolean }) => p.isActive) || [];
 
   const cashAccount = myTreasury.find(a => a.accountType === 'cash_in_hand');
   

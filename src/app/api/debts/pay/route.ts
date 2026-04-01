@@ -3,7 +3,7 @@
 // 🔒 محمي بـ requireAuth + assertTenantMatch
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceClient } from '@/core/db/supabase';
 import { requireAuth, assertTenantMatch } from '@/core/server/auth';
 
 export async function POST(req: NextRequest) {
@@ -20,11 +20,7 @@ export async function POST(req: NextRequest) {
     const tenantError = assertTenantMatch(auth, tenantId);
     if (tenantError) return tenantError;
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
+    const supabaseAdmin = createServiceClient();
 
     // 1. جلب تفاصيل الدين للتأكد من النوع وهل هو إيراد أم مصروف للخزينة
     const { data: debt, error: fetchError } = await supabaseAdmin

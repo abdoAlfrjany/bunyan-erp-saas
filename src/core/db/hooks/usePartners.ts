@@ -3,6 +3,9 @@ import { createClient } from '@/core/db/supabase';
 import { mapRowToPartner } from '../slices/partnersEmployeesSlice';
 import type { Partner } from '../../types';
 
+// ═══ أعمدة محددة ═══
+const PARTNER_COLUMNS = 'id, tenant_id, name, phone, email, profit_percentage, capital_contribution, wallet_balance, debt_balance, is_active, joined_at, user_id, partner_role, delivery_fee_per_order, created_at';
+
 export function usePartnersQuery(tenantId: string | undefined) {
   return useQuery({
     queryKey: ['partners', tenantId],
@@ -12,12 +15,11 @@ export function usePartnersQuery(tenantId: string | undefined) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from('partners')
-        .select('*')
+        .select(PARTNER_COLUMNS)
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('usePartnersQuery error:', error.message);
         throw new Error(error.message);
       }
 

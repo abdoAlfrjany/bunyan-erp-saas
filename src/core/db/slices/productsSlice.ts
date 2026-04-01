@@ -31,7 +31,7 @@ export interface ProductsSlice {
   fetchProducts: (tenantId: string) => Promise<void>;
   addProduct: (p: Product) => Promise<void>;
   updateProduct: (id: string, data: Partial<Product>) => Promise<void>;
-  deleteProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
+  deleteProduct: (id: string, tenantId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const createProductsSlice: StateCreator<ProductsSlice, [], [], ProductsSlice> = (set, get) => ({
@@ -101,9 +101,9 @@ export const createProductsSlice: StateCreator<ProductsSlice, [], [], ProductsSl
     }
   },
 
-  deleteProduct: async (id) => {
+  deleteProduct: async (id, tenantId) => {
     try {
-      const res = await fetch(`/api/products?id=${id}`, {
+      const res = await fetch(`/api/products?id=${id}&tenantId=${tenantId}`, {
         method: 'DELETE',
       });
 
