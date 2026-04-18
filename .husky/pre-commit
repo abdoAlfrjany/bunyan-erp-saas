@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Pre-commit checks..."
+
+npx tsc --noEmit || {
+  echo "❌ TypeScript errors found. Fix them before committing."
+  exit 1
+}
+
+npx lint-staged || {
+  echo "❌ Lint errors found. Fix them before committing."
+  exit 1
+}
+
+echo "✅ All pre-commit checks passed!"
